@@ -131,28 +131,42 @@ export default function WizardShell() {
     }
   };
 
+  const handleLogout = () => {
+    const callbackUrl = encodeURIComponent("https://create.pipery.dev");
+    window.location.href = `https://auth.pipery.dev/api/auth/logout?callbackUrl=${callbackUrl}`;
+  };
+
   return (
     <div className="flex h-screen bg-slate-50">
-      <div className="w-1/6 bg-white border-r border-slate-200 p-6">
-        <h1 className="text-2xl font-bold mb-8">Pipery Workflow</h1>
-        <nav className="space-y-4">
-          {steps.map((s, i) => (
-            <button
-              key={i}
-              onClick={() => setStep(i + 1)}
-              className={`block w-full text-left px-4 py-2 rounded transition ${
-                step === i + 1
-                  ? "bg-blue-100 text-blue-900 font-semibold"
-                  : "text-slate-600 hover:bg-slate-100"
-              }`}
-            >
-              <span className="mr-2">
-                {step === i + 1 ? "●" : "○"}
-              </span>
-              {s}
-            </button>
-          ))}
-        </nav>
+      <div className="w-1/6 bg-white border-r border-slate-200 p-6 flex flex-col">
+        <div>
+          <h1 className="text-2xl font-bold mb-8">Pipery Workflow</h1>
+          <nav className="space-y-4">
+            {steps.map((s, i) => (
+              <button
+                key={i}
+                onClick={() => setStep(i + 1)}
+                className={`block w-full text-left px-4 py-2 rounded transition ${
+                  step === i + 1
+                    ? "bg-blue-100 text-blue-900 font-semibold"
+                    : "text-slate-600 hover:bg-slate-100"
+                }`}
+              >
+                <span className="mr-2">
+                  {step === i + 1 ? "●" : "○"}
+                </span>
+                {s}
+              </button>
+            ))}
+          </nav>
+        </div>
+
+        <button
+          onClick={handleLogout}
+          className="mt-auto px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded transition w-full text-left"
+        >
+          Sign out
+        </button>
       </div>
 
       <div className="flex-1 flex">

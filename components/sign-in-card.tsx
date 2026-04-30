@@ -1,6 +1,11 @@
-import Link from "next/link";
+"use client";
 
 export default function SignInCard() {
+  const handleSignIn = () => {
+    const callbackUrl = encodeURIComponent(typeof window !== "undefined" ? window.location.href : "https://create.pipery.dev/wizard");
+    window.location.href = `https://auth.pipery.dev?callbackUrl=${callbackUrl}`;
+  };
+
   return (
     <div className="flex items-center justify-center min-h-screen bg-slate-50">
       <div className="bg-white rounded-lg shadow-lg p-8 text-center max-w-md">
@@ -8,12 +13,12 @@ export default function SignInCard() {
         <p className="text-slate-600 mb-8">
           Sign in with your GitHub account to create and manage GitHub Actions workflows
         </p>
-        <Link
-          href="https://auth.pipery.dev/api/auth/signin/github"
+        <button
+          onClick={handleSignIn}
           className="inline-block px-8 py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition"
         >
           Sign in with GitHub
-        </Link>
+        </button>
       </div>
     </div>
   );
