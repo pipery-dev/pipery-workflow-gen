@@ -18,6 +18,7 @@ jobs:
     env:
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      NEXTAUTH_URL: https://start.pipery.dev
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -59,6 +60,7 @@ jobs:
     env:
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      NEXTAUTH_URL: https://start.pipery.dev
     steps:
       - name: Checkout
         uses: actions/checkout@v5
