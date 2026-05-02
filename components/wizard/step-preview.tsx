@@ -10,6 +10,7 @@ interface StepPreviewProps {
   repo: string;
   onComplete: () => void;
   config: any;
+  isAuthenticated?: boolean;
 }
 
 export default function StepPreview({
@@ -17,12 +18,34 @@ export default function StepPreview({
   workflowName,
   repo,
   onComplete,
-  config
+  config,
+  isAuthenticated = false
 }: StepPreviewProps) {
   const { data: session } = useSession();
   const [creating, setCreating] = useState(false);
   const [prUrl, setPrUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(yaml);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setError("Failed to copy to clipboard");
+    }
+  };
+
+  const handleDownload = () => {
+    const element = document.createElement("a");
+    const file = new Blob([yaml], { type: "text/plain" });
+    element.href = URL.createObjectURL(file);
+    element.download = `${workflowName}.yml`;
+    document.body.appendChild(element);
+    element.click();
+    document.body.removeChild(element);
+  };
 
   const handleCreatePr = async () => {
     if (!repo) {
@@ -62,12 +85,15 @@ export default function StepPreview({
 
   return (
     <div>
-      <h2 className="text-2xl font-bold mb-6">Review & Create PR</h2>
+      <h2 className="text-2xl font-bold mb-6">
+        {isAuthenticated ? "Review & Create PR" : "Download Your Workflow"}
+      </h2>
 
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
         <p className="text-sm text-blue-900">
-          Review the generated GitHub Actions workflow below. Click "Create PR" to commit this
-          workflow to your repository.
+          {isAuthenticated
+            ? "Review the generated GitHub Actions workflow below. Click \"Create PR\" to commit this workflow to your repository."
+            : "Copy or download the generated GitHub Actions workflow. You can add it manually to your repository, or sign in to create a PR automatically."}
         </p>
       </div>
 
@@ -93,12 +119,32 @@ export default function StepPreview({
 
       <div className="flex gap-4">
         <button
-          onClick={handleCreatePr}
-          disabled={creating || !repo || !!prUrl}
-          className="px-6 py-2 rounded bg-green-600 text-white disabled:opacity-50 hover:bg-green-700"
+          onClick={handleCopy}
+          className={`px-6 py-2 rounded transition ${
+            copied
+              ? "bg-green-600 text-white"
+              : "bg-slate-600 text-white hover:bg-slate-700"
+          }`}
         >
-          {creating ? "Creating PR..." : "Create PR"}
+          {copied ? "✓ Copied" : "Copy to Clipboard"}
         </button>
+
+        <button
+          onClick={handleDownload}
+          className="px-6 py-2 rounded bg-slate-600 text-white hover:bg-slate-700"
+        >
+          Download YAML
+        </button>
+
+        {isAuthenticated && (
+          <button
+            onClick={handleCreatePr}
+            disabled={creating || !repo || !!prUrl}
+            className="px-6 py-2 rounded bg-green-600 text-white disabled:opacity-50 hover:bg-green-700"
+          >
+            {creating ? "Creating PR..." : "Create PR"}
+          </button>
+        )}
 
         {prUrl && (
           <button

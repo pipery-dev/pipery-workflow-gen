@@ -70,9 +70,9 @@ export default function WizardShell() {
     }
   }, [cdKey]);
 
-  if (!session) return <SignInCard />;
-
-  const steps = ["Language", "CI Config", "CD Config", "Repo", "Review"];
+  const steps = session
+    ? ["Language", "CI Config", "CD Config", "Repo", "Review"]
+    : ["Language", "CI Config", "CD Config", "Download"];
 
   const renderStep = () => {
     switch (step) {
@@ -100,6 +100,18 @@ export default function WizardShell() {
           />
         );
       case 4:
+        if (!session) {
+          return (
+            <div>
+              <h2 className="text-2xl font-bold mb-6">Download Your Workflow</h2>
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+                <p className="text-sm text-blue-900">
+                  Copy or download your generated GitHub Actions workflow. You can manually add it to your repository or sign in to create a PR.
+                </p>
+              </div>
+            </div>
+          );
+        }
         return (
           <StepRepo
             repos={repos}
@@ -124,6 +136,7 @@ export default function WizardShell() {
             repo={repo}
             onComplete={() => setStep(1)}
             config={{ language, ciValues, cdKey, cdValues, workflowName: workflowName || `pipery-${language}`, triggers }}
+            isAuthenticated={!!session}
           />
         );
       default:
@@ -131,8 +144,13 @@ export default function WizardShell() {
     }
   };
 
+  const handleSignIn = () => {
+    const callbackUrl = encodeURIComponent(window.location.href);
+    window.location.href = `https://auth.pipery.dev?callbackUrl=${callbackUrl}`;
+  };
+
   const handleLogout = () => {
-    const callbackUrl = encodeURIComponent("https://create.pipery.dev");
+    const callbackUrl = encodeURIComponent("https://start.pipery.dev");
     window.location.href = `https://auth.pipery.dev/api/auth/logout?callbackUrl=${callbackUrl}`;
   };
 
@@ -161,12 +179,23 @@ export default function WizardShell() {
           </nav>
         </div>
 
-        <button
-          onClick={handleLogout}
-          className="mt-auto px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded transition w-full text-left"
-        >
-          Sign out
-        </button>
+        <div className="mt-auto space-y-2">
+          {session ? (
+            <button
+              onClick={handleLogout}
+              className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded transition w-full text-left"
+            >
+              Sign out
+            </button>
+          ) : (
+            <button
+              onClick={handleSignIn}
+              className="px-4 py-2 text-sm bg-blue-600 text-white hover:bg-blue-700 rounded transition w-full"
+            >
+              Sign in
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="flex-1 flex">
@@ -182,8 +211,8 @@ export default function WizardShell() {
               ← Back
             </button>
             <button
-              onClick={() => setStep(Math.min(5, step + 1))}
-              disabled={step === 5 || !language}
+              onClick={() => setStep(Math.min(session ? 5 : 4, step + 1))}
+              disabled={(session ? step === 5 : step === 4) || !language}
               className="px-6 py-2 rounded bg-blue-600 text-white disabled:opacity-50 hover:bg-blue-700"
             >
               Next →
