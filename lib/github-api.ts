@@ -144,8 +144,6 @@ export async function createWorkflowPR({
 
     // Create tree structure using raw request for proper parameter encoding
     const { data: tree } = await makeRawRequest(octokit, "POST", `/repos/${owner}/${repo}/git/trees`, {
-      owner,
-      repo,
       tree: [
         {
           path: `.github/workflows/${workflowName}.yml`,
@@ -194,8 +192,6 @@ export async function createWorkflowPR({
     console.log("[GITHUB-API] Step 6 params:", { owner, repo, ref: `refs/heads/${newBranch}`, sha: commitSha });
 
     await makeRawRequest(octokit, "POST", `/repos/${owner}/${repo}/git/refs`, {
-      owner,
-      repo,
       ref: `refs/heads/${newBranch}`,
       sha: commitSha
     });
