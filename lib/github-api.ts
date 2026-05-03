@@ -20,6 +20,15 @@ function getOctokit(token: string) {
   return new Octokit({ auth: token });
 }
 
+async function makeRawRequest(
+  octokit: InstanceType<typeof Octokit>,
+  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
+  path: string,
+  data?: any
+) {
+  return octokit.request(`${method} ${path}`, data);
+}
+
 export async function listRepos(token: string): Promise<Repo[]> {
   const octokit = getOctokit(token);
   const { data: repos } = await octokit.repos.listForAuthenticatedUser({
@@ -133,8 +142,8 @@ export async function createWorkflowPR({
     console.log("[GITHUB-API] blobSha:", blobSha);
     console.log("[GITHUB-API] workflowName:", workflowName);
 
-    // Create tree structure - if .github/workflows doesn't exist, need to build the hierarchy
-    const { data: tree } = await octokit.git.createTree({
+    // Create tree structure using raw request for proper parameter encoding
+    const { data: tree } = await makeRawRequest(octokit, "POST", `/repos/${owner}/${repo}/git/trees`, {
       owner,
       repo,
       tree: [
@@ -157,56 +166,7 @@ export async function createWorkflowPR({
       errors: e.errors,
       response: e.response?.data
     }, null, 2));
-
-    // If tree creation failed, try creating directory structure explicitly
-    console.log("[GITHUB-API] Attempting fallback: creating directory structure...");
-    try {
-      const workflowsTree = await octokit.git.createTree({
-        owner,
-        repo,
-        tree: [
-          {
-            path: workflowName + ".yml",
-            mode: "100644",
-            type: "blob",
-            sha: blobSha
-          }
-        ]
-      });
-
-      const githubTree = await octokit.git.createTree({
-        owner,
-        repo,
-        tree: [
-          {
-            path: "workflows",
-            mode: "040000",
-            type: "tree",
-            sha: workflowsTree.data.sha
-          }
-        ]
-      });
-
-      const finalTree = await octokit.git.createTree({
-        owner,
-        repo,
-        tree: [
-          {
-            path: ".github",
-            mode: "040000",
-            type: "tree",
-            sha: githubTree.data.sha
-          }
-        ],
-        base_tree: baseTreeSha
-      });
-
-      treeSha = finalTree.data.sha;
-      console.log("[GITHUB-API] Step 4 ✓ treeSha (via fallback):", treeSha);
-    } catch (fallbackError: any) {
-      console.error("[GITHUB-API] ✗ Fallback also failed:", fallbackError.message);
-      throw new Error(`Step 4 failed: ${e.message}`);
-    }
+    throw new Error(`Step 4 failed: ${e.message}`);
   }
 
   // Step 5: Create commit
@@ -231,7 +191,9 @@ export async function createWorkflowPR({
   try {
     console.log("[GITHUB-API] Step 6: Creating branch ref");
     newBranch = `add-pipery-${workflowName}-${Date.now()}`;
-    await octokit.git.createRef({
+    console.log("[GITHUB-API] Step 6 params:", { owner, repo, ref: `refs/heads/${newBranch}`, sha: commitSha });
+
+    await makeRawRequest(octokit, "POST", `/repos/${owner}/${repo}/git/refs`, {
       owner,
       repo,
       ref: `refs/heads/${newBranch}`,
@@ -240,6 +202,12 @@ export async function createWorkflowPR({
     console.log("[GITHUB-API] Step 6 ✓ newBranch:", newBranch);
   } catch (e: any) {
     console.error("[GITHUB-API] ✗ STEP 6 FAILED:", e.message);
+    console.error("[GITHUB-API] Full error:", JSON.stringify({
+      status: e.status,
+      message: e.message,
+      errors: e.errors,
+      response: e.response?.data
+    }, null, 2));
     throw new Error(`Step 6 failed (branch creation): ${e.message}`);
   }
 
