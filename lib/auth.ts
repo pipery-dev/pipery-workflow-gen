@@ -16,6 +16,9 @@ export const authOptions: NextAuthOptions = {
   providers: [],
   session: { strategy: "jwt" },
   callbacks: {
+    async jwt({ token }) {
+      return token;
+    },
     async session({ session, token }: any) {
       session.accessToken = token.accessToken;
       session.user.login = token.login;
@@ -33,5 +36,6 @@ export const authOptions: NextAuthOptions = {
         domain: ".pipery.dev"
       }
     }
-  }
+  },
+  secret: process.env.NEXTAUTH_SECRET
 };

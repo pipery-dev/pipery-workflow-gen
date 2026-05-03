@@ -4,8 +4,7 @@ import { useState, useMemo, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import { CI_ACTIONS, CD_ACTIONS } from "@/lib/action-catalog";
 import { generateWorkflow } from "@/lib/workflow-generator";
-import StepLanguage from "./step-language";
-import StepCiConfig from "./step-ci-config";
+import StepLanguageAndCi from "./step-language-and-ci";
 import StepCdConfig from "./step-cd-config";
 import StepRepo from "./step-repo";
 import StepPreview from "./step-preview";
@@ -71,24 +70,23 @@ export default function WizardShell() {
   }, [cdKey]);
 
   const steps = session
-    ? ["Language", "CI Config", "CD Config", "Repo", "Review"]
-    : ["Language", "CI Config", "CD Config", "Download"];
+    ? ["Language & CI", "CD Config", "Repo", "Review"]
+    : ["Language & CI", "CD Config", "Download"];
 
   const renderStep = () => {
     switch (step) {
       case 1:
-        return <StepLanguage selected={language} onSelect={setLanguage} />;
-      case 2:
         return (
-          <StepCiConfig
+          <StepLanguageAndCi
             language={language}
-            values={ciValues}
-            onValuesChange={setCiValues}
+            onLanguageSelect={setLanguage}
+            ciValues={ciValues}
+            onCiValuesChange={setCiValues}
             advanced={advanced}
             onAdvancedChange={setAdvanced}
           />
         );
-      case 3:
+      case 2:
         return (
           <StepCdConfig
             cdKey={cdKey}
@@ -99,7 +97,7 @@ export default function WizardShell() {
             onAdvancedChange={setAdvanced}
           />
         );
-      case 4:
+      case 3:
         if (!session) {
           return (
             <div>
@@ -128,7 +126,7 @@ export default function WizardShell() {
             onTriggersChange={setTriggers}
           />
         );
-      case 5:
+      case 4:
         return (
           <StepPreview
             yaml={generatedYaml}
@@ -211,8 +209,8 @@ export default function WizardShell() {
               ← Back
             </button>
             <button
-              onClick={() => setStep(Math.min(session ? 5 : 4, step + 1))}
-              disabled={(session ? step === 5 : step === 4) || !language}
+              onClick={() => setStep(Math.min(session ? 4 : 3, step + 1))}
+              disabled={(session ? step === 4 : step === 3) || !language}
               className="px-6 py-2 rounded bg-blue-600 text-white disabled:opacity-50 hover:bg-blue-700"
             >
               Next →
