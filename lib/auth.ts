@@ -3,6 +3,7 @@ import { NextAuthOptions } from "next-auth";
 declare module "next-auth" {
   interface Session {
     accessToken?: string;
+    provider?: "github" | "gitlab";
     user: {
       login?: string;
       email?: string | null;
@@ -21,6 +22,7 @@ export const authOptions: NextAuthOptions = {
     },
     async session({ session, token }: any) {
       session.accessToken = token.accessToken;
+      session.provider = token.provider;
       session.user.login = token.login;
       return session;
     }

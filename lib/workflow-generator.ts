@@ -2,12 +2,19 @@ import yaml from "js-yaml";
 import { CI_ACTIONS, CD_ACTIONS, ActionInput } from "./action-catalog";
 
 export interface WorkflowConfig {
+  platform?: "github" | "gitlab";
   language: string;
   ciValues: Record<string, string>;
   cdKey: string | null;
   cdValues: Record<string, string>;
   workflowName: string;
   triggers: { pushBranches: string[]; pullRequest: boolean };
+}
+
+export function workflowFilePath(config: Pick<WorkflowConfig, "platform" | "workflowName">): string {
+  const platform = config.platform || "github";
+  if (platform === "gitlab") return ".gitlab-ci.yml";
+  return `.github/workflows/${config.workflowName || "pipery"}.yml`;
 }
 
 function buildWith(inputs: ActionInput[], userValues: Record<string, string>) {
@@ -22,6 +29,13 @@ function buildWith(inputs: ActionInput[], userValues: Record<string, string>) {
 }
 
 export function generateWorkflow(config: WorkflowConfig): string {
+  if ((config.platform || "github") === "gitlab") {
+    return generateGitLabCi(config);
+  }
+  return generateGitHubActions(config);
+}
+
+function generateGitHubActions(config: WorkflowConfig): string {
   const ci = CI_ACTIONS[config.language];
   if (!ci) throw new Error(`Unknown language: ${config.language}`);
 
@@ -79,4 +93,55 @@ export function generateWorkflow(config: WorkflowConfig): string {
   };
 
   return yaml.dump(workflow, { lineWidth: -1, noRefs: true, quotingType: '"' });
+}
+
+function toGitLabVariables(inputs: ActionInput[], userValues: Record<string, string>) {
+  const variables: Record<string, string> = {};
+  for (const input of inputs) {
+    const val = userValues[input.name] ?? input.default;
+    if (val !== "") {
+      variables[input.name.toUpperCase()] = val
+        .replaceAll("${{ github.sha }}", "$CI_COMMIT_SHA")
+        .replaceAll("${{ secrets.GITHUB_TOKEN }}", "$GITHUB_TOKEN");
+    }
+  }
+  return variables;
+}
+
+function generateGitLabCi(config: WorkflowConfig): string {
+  const ci = CI_ACTIONS[config.language];
+  if (!ci) throw new Error(`Unknown language: ${config.language}`);
+
+  const cd = config.cdKey ? CD_ACTIONS[config.cdKey] : null;
+  const includes: any[] = [
+    { remote: `https://raw.githubusercontent.com/${ci.actionId}/v1/.gitlab-ci.yml` }
+  ];
+
+  if (cd) {
+    includes.push({ remote: `https://raw.githubusercontent.com/${cd.actionId}/v1/.gitlab-ci.yml` });
+  }
+
+  const workflowRules: any[] = [];
+  if (config.triggers.pullRequest) {
+    workflowRules.push({ if: "$CI_PIPELINE_SOURCE == \"merge_request_event\"" });
+  }
+  if (config.triggers.pushBranches.length > 0) {
+    workflowRules.push({
+      if: `$CI_COMMIT_BRANCH =~ /^(${config.triggers.pushBranches.join("|")})$/`
+    });
+  }
+  workflowRules.push({ when: "never" });
+
+  const variables = {
+    ...toGitLabVariables(ci.inputs, config.ciValues),
+    ...(cd ? toGitLabVariables(cd.inputs, config.cdValues) : {})
+  };
+
+  const pipeline = {
+    include: includes,
+    workflow: { rules: workflowRules },
+    variables
+  };
+
+  return yaml.dump(pipeline, { lineWidth: -1, noRefs: true, quotingType: '"' });
 }

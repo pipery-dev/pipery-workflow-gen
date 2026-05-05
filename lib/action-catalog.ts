@@ -27,7 +27,7 @@ export const CI_ACTIONS: Record<string, CiAction> = {
     icon: "⚙️",
     inputs: [
       { name: "project_path", description: "Path to the project source tree the action should operate on.", default: ".", basic: true },
-      { name: "config_file", description: "Path to Pipery config file.", default: ".github/pipery/config.yaml", basic: false },
+      { name: "config_file", description: "Path to Pipery config file.", default: ".pipery/config.yaml", basic: false },
       { name: "build_system", description: "Build system to use: auto, cmake, make, or meson.", default: "auto", basic: false },
       { name: "tests_path", description: "Test filter pattern passed to ctest -R or equivalent.", default: "", basic: false },
       { name: "compiler", description: "C++ compiler to use (e.g. g++, clang++).", default: "g++", basic: false },
@@ -83,7 +83,7 @@ export const CI_ACTIONS: Record<string, CiAction> = {
     icon: "🐹",
     inputs: [
       { name: "project_path", description: "Path to the project source tree the action should operate on.", default: ".", basic: true },
-      { name: "config_file", description: "Path to Pipery config file.", default: ".github/pipery/config.yaml", basic: false },
+      { name: "config_file", description: "Path to Pipery config file.", default: ".pipery/config.yaml", basic: false },
       { name: "go_version", description: "Go version to use.", default: "1.22", basic: false },
       { name: "skip_sast", description: "Skip SAST step.", default: "false", basic: false },
       { name: "skip_sca", description: "Skip SCA step.", default: "false", basic: false },
@@ -108,7 +108,7 @@ export const CI_ACTIONS: Record<string, CiAction> = {
     icon: "☕",
     inputs: [
       { name: "project_path", description: "Path to the project source tree the action should operate on.", default: ".", basic: true },
-      { name: "config_file", description: "Path to Pipery config file.", default: ".github/pipery/config.yaml", basic: false },
+      { name: "config_file", description: "Path to Pipery config file.", default: ".pipery/config.yaml", basic: false },
       { name: "java_version", description: "Java version to use.", default: "21", basic: false },
       { name: "build_tool", description: "Build tool to use: auto, maven, gradle, or groovy.", default: "auto", basic: false },
       { name: "tests_path", description: "Test target passed to the build tool (e.g. a test class or pattern).", default: "", basic: false },
@@ -144,7 +144,7 @@ export const CI_ACTIONS: Record<string, CiAction> = {
     icon: "🐍",
     inputs: [
       { name: "project_path", description: "Path to the project source tree.", default: ".", basic: true },
-      { name: "config_file", description: "Path to pipery config file.", default: ".github/pipery/config.yaml", basic: false },
+      { name: "config_file", description: "Path to pipery config file.", default: ".pipery/config.yaml", basic: false },
       { name: "package_manager", description: "Package manager: auto, setuptools, poetry, uv.", default: "auto", basic: false },
       { name: "python_version", description: "Python version to use.", default: "3.11", basic: false },
       { name: "skip_sast", description: "Skip SAST scan.", default: "false", basic: false },
@@ -171,7 +171,7 @@ export const CI_ACTIONS: Record<string, CiAction> = {
     icon: "🦀",
     inputs: [
       { name: "project_path", description: "Path to the project source tree the action should operate on.", default: ".", basic: true },
-      { name: "config_file", description: "Path to Pipery config file.", default: ".github/pipery/config.yaml", basic: false },
+      { name: "config_file", description: "Path to Pipery config file.", default: ".pipery/config.yaml", basic: false },
       { name: "rust_toolchain", description: "Rust toolchain to use (e.g. stable, nightly, 1.75).", default: "stable", basic: false },
       { name: "tests_path", description: "Test filter pattern passed to cargo test.", default: "", basic: false },
       { name: "features", description: "Cargo features to enable (comma-separated).", default: "", basic: false },
@@ -198,7 +198,7 @@ export const CI_ACTIONS: Record<string, CiAction> = {
     icon: "🏗️",
     inputs: [
       { name: "project_path", description: "Path to the Terraform root module.", default: ".", basic: true },
-      { name: "config_file", description: "Path to the pipery config file.", default: ".github/pipery/config.yaml", basic: false },
+      { name: "config_file", description: "Path to the pipery config file.", default: ".pipery/config.yaml", basic: false },
       { name: "terraform_version", description: "Terraform CLI version to use.", default: "latest", basic: true },
       { name: "backend_config", description: "Comma-separated backend config vars (key=val).", default: "", basic: false },
       { name: "var_file", description: "Path to a .tfvars file.", default: "", basic: false },
@@ -224,7 +224,7 @@ export const CD_ACTIONS: Record<string, CdAction> = {
     icon: "📜",
     inputs: [
       { name: "project_path", description: "Path to the project source tree.", default: ".", basic: true },
-      { name: "config_file", description: "Path to the pipery config file.", default: ".github/pipery/config.yaml", basic: false },
+      { name: "config_file", description: "Path to the pipery config file.", default: ".pipery/config.yaml", basic: false },
       { name: "playbook", description: "Path to the Ansible playbook file.", default: "playbook.yml", basic: false },
       { name: "inventory", description: "Path to the Ansible inventory file.", default: "inventory", basic: false },
       { name: "requirements", description: "Path to requirements.txt for pip.", default: "", basic: false },
@@ -246,7 +246,7 @@ export const CD_ACTIONS: Record<string, CdAction> = {
     icon: "⎈",
     inputs: [
       { name: "project_path", description: "Path to the project source tree.", default: ".", basic: true },
-      { name: "config_file", description: "Path to the pipery config file.", default: ".github/pipery/config.yaml", basic: false },
+      { name: "config_file", description: "Path to the pipery config file.", default: ".pipery/config.yaml", basic: false },
       { name: "argocd_server", description: "ArgoCD server URL (e.g. argocd.example.com).", default: "", basic: false },
       { name: "argocd_app", description: "ArgoCD application name.", default: "", basic: false },
       { name: "argocd_token", description: "ArgoCD authentication token.", default: "", basic: false, secret: true },
@@ -267,7 +267,7 @@ export const CD_ACTIONS: Record<string, CdAction> = {
     icon: "☁️",
     inputs: [
       { name: "project_path", description: "Path to the project source tree.", default: ".", basic: true },
-      { name: "config_file", description: "Path to the pipery config file.", default: ".github/pipery/config.yaml", basic: false },
+      { name: "config_file", description: "Path to the pipery config file.", default: ".pipery/config.yaml", basic: false },
       { name: "image_name", description: "Container image name to deploy (e.g. ghcr.io/org/app).", default: "", basic: false },
       { name: "image_tag", description: "Container image tag to deploy.", default: "${{ github.sha }}", basic: false },
       { name: "service_name", description: "Cloud Run service name.", default: "", basic: false },
@@ -298,7 +298,7 @@ export const CD_ACTIONS: Record<string, CdAction> = {
     icon: "🐳",
     inputs: [
       { name: "project_path", description: "Path to the project source tree the action should operate on.", default: ".", basic: true },
-      { name: "config_file", description: "Path to the pipery config file.", default: ".github/pipery/config.yaml", basic: false },
+      { name: "config_file", description: "Path to the pipery config file.", default: ".pipery/config.yaml", basic: false },
       { name: "deploy_target", description: "Deployment target: argocd, cloud-run, helm, or ansible.", default: "argocd", basic: false },
       { name: "deploy_strategy", description: "Deployment strategy: rolling, blue-green, or canary.", default: "rolling", basic: false },
       { name: "skip_pull", description: "Skip the image pull step.", default: "false", basic: false },
@@ -337,7 +337,7 @@ export const CD_ACTIONS: Record<string, CdAction> = {
     icon: "⛵",
     inputs: [
       { name: "project_path", description: "Path to the project source tree.", default: ".", basic: true },
-      { name: "config_file", description: "Path to the pipery config file.", default: ".github/pipery/config.yaml", basic: false },
+      { name: "config_file", description: "Path to the pipery config file.", default: ".pipery/config.yaml", basic: false },
       { name: "release_name", description: "Helm release name.", default: "", basic: false },
       { name: "chart", description: "Helm chart path or OCI reference.", default: "", basic: false },
       { name: "namespace", description: "Kubernetes namespace for the release.", default: "default", basic: false },
@@ -416,7 +416,7 @@ export const CD_ACTIONS: Record<string, CdAction> = {
     icon: "🏗️",
     inputs: [
       { name: "project_path", description: "Path to the Terraform root module.", default: ".", basic: true },
-      { name: "config_file", description: "Path to the pipery config file.", default: ".github/pipery/config.yaml", basic: false },
+      { name: "config_file", description: "Path to the pipery config file.", default: ".pipery/config.yaml", basic: false },
       { name: "terraform_version", description: "Terraform CLI version to use.", default: "latest", basic: true },
       { name: "backend_config", description: "Comma-separated backend config vars (key=val).", default: "", basic: false },
       { name: "var_file", description: "Path to a .tfvars file.", default: "", basic: false },

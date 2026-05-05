@@ -1,32 +1,43 @@
 import { NextResponse, NextRequest } from "next/server";
-import { getGitHubAccessToken } from "@/lib/github";
+import { getGitHubAccessToken, getProviderAccessToken } from "@/lib/github";
 import { generateWorkflow, WorkflowConfig } from "@/lib/workflow-generator";
 import { createWorkflowPR } from "@/lib/github-api";
+import { createWorkflowMR } from "@/lib/gitlab-api";
 
 export const runtime = "nodejs";
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { owner, repo, workflowName, ...config } = body;
+    const { platform = "github", owner, repo, workflowName, ...config } = body;
 
-    console.log("[CREATE-PR] Request:", { owner, repo, workflowName, configKeys: Object.keys(config) });
+    console.log("[CREATE-PR] Request:", { platform, owner, repo, workflowName, configKeys: Object.keys(config) });
 
-    if (!owner || !repo || !workflowName) {
+    if ((!owner && platform === "github") || !repo || !workflowName) {
       console.error("[CREATE-PR] Missing required fields:", { owner, repo, workflowName });
       return NextResponse.json(
-        { error: "Missing required fields: owner, repo, or workflowName" },
+        { error: "Missing required fields: owner, repo/project, or workflowName" },
         { status: 400 }
       );
     }
 
-    const token = await getGitHubAccessToken();
-    console.log("[CREATE-PR] Got GitHub token");
-
-    const yamlContent = generateWorkflow(config as WorkflowConfig);
+    const yamlContent = generateWorkflow({ platform, ...config } as WorkflowConfig);
     console.log("[CREATE-PR] Generated YAML length:", yamlContent.length);
 
-    const result = await createWorkflowPR({ owner, repo, workflowName, yamlContent, token });
+    const result = platform === "gitlab"
+      ? await createWorkflowMR({
+          projectId: repo,
+          workflowName,
+          yamlContent,
+          token: await getProviderAccessToken("gitlab")
+        })
+      : await createWorkflowPR({
+          owner,
+          repo,
+          workflowName,
+          yamlContent,
+          token: await getGitHubAccessToken()
+        });
 
     console.log("[CREATE-PR] Success:", result);
     return NextResponse.json(result);

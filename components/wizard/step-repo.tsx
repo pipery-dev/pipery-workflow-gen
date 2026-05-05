@@ -16,6 +16,7 @@ interface StepRepoProps {
   onWorkflowNameChange: (name: string) => void;
   triggers: { pushBranches: string[]; pullRequest: boolean };
   onTriggersChange: (triggers: { pushBranches: string[]; pullRequest: boolean }) => void;
+  platform: "github" | "gitlab";
 }
 
 export default function StepRepo({
@@ -30,28 +31,31 @@ export default function StepRepo({
   workflowName,
   onWorkflowNameChange,
   triggers,
-  onTriggersChange
+  onTriggersChange,
+  platform
 }: StepRepoProps) {
   const { data: session } = useSession();
 
   useEffect(() => {
     if (!session?.accessToken) return;
 
-    fetch("/api/github/repos")
+    fetch(platform === "gitlab" ? "/api/gitlab/projects" : "/api/github/repos")
       .then(r => r.json())
       .then(({ repos, error }) => {
         if (repos) onReposChange(repos);
         if (repos && repos.length > 0 && !selectedRepo) {
-          onRepoChange(repos[0].fullName);
+          onRepoChange(platform === "gitlab" ? String(repos[0].id) : repos[0].fullName);
         }
       });
-  }, [session]);
+  }, [session, platform]);
 
   useEffect(() => {
     if (!selectedRepo) return;
 
-    const [owner, repo] = selectedRepo.split("/");
-    fetch(`/api/github/${owner}/${repo}/branches`)
+    const url = platform === "gitlab"
+      ? `/api/gitlab/branches?projectId=${encodeURIComponent(selectedRepo)}`
+      : `/api/github/${selectedRepo.split("/")[0]}/${selectedRepo.split("/")[1]}/branches`;
+    fetch(url)
       .then(r => r.json())
       .then(({ branches, error }) => {
         if (branches) {
@@ -62,15 +66,15 @@ export default function StepRepo({
           }
         }
       });
-  }, [selectedRepo]);
+  }, [selectedRepo, platform]);
 
   return (
     <div>
-      <h2 className="text-2xl font-bold mb-6">Target Repository</h2>
+      <h2 className="text-2xl font-bold mb-6">Target {platform === "gitlab" ? "Project" : "Repository"}</h2>
 
       <div className="space-y-6">
         <div>
-          <label className="block text-sm font-semibold mb-2">Repository</label>
+          <label className="block text-sm font-semibold mb-2">{platform === "gitlab" ? "Project" : "Repository"}</label>
           <select
             value={selectedRepo}
             onChange={e => onRepoChange(e.target.value)}
@@ -78,7 +82,7 @@ export default function StepRepo({
           >
             <option value="">Select a repository</option>
             {repos.map(repo => (
-              <option key={repo.id} value={repo.fullName}>
+              <option key={repo.id} value={platform === "gitlab" ? String(repo.id) : repo.fullName}>
                 {repo.fullName}
               </option>
             ))}

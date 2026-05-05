@@ -4,17 +4,20 @@ import { useState, useMemo, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import { CI_ACTIONS, CD_ACTIONS } from "@/lib/action-catalog";
 import { generateWorkflow } from "@/lib/workflow-generator";
+import StepPlatform from "./step-platform";
 import StepLanguageAndCi from "./step-language-and-ci";
 import StepCdConfig from "./step-cd-config";
 import StepRepo from "./step-repo";
 import StepPreview from "./step-preview";
 import YamlPreview from "../yaml-preview";
-import SignInCard from "../sign-in-card";
 
 export default function WizardShell() {
   const { data: session } = useSession();
 
   const [step, setStep] = useState(1);
+  const [platform, setPlatform] = useState<"github" | "gitlab">("github");
+  const isPlatformAuthenticated =
+    !!session && (session.provider === platform || (!session.provider && platform === "github"));
   const [language, setLanguage] = useState("");
   const [advanced, setAdvanced] = useState(false);
   const [ciValues, setCiValues] = useState<Record<string, string>>({});
@@ -31,6 +34,7 @@ export default function WizardShell() {
     if (!language) return "";
     try {
       return generateWorkflow({
+        platform,
         language,
         ciValues,
         cdKey,
@@ -41,7 +45,7 @@ export default function WizardShell() {
     } catch {
       return "# Error generating workflow";
     }
-  }, [language, ciValues, cdKey, cdValues, workflowName, triggers]);
+  }, [platform, language, ciValues, cdKey, cdValues, workflowName, triggers]);
 
   useEffect(() => {
     if (language && Object.keys(ciValues).length === 0) {
@@ -69,13 +73,20 @@ export default function WizardShell() {
     }
   }, [cdKey]);
 
-  const steps = session
-    ? ["Language & CI", "CD Config", "Repo", "Review"]
-    : ["Language & CI", "CD Config", "Download"];
+  const steps = isPlatformAuthenticated
+    ? ["Platform", "Language & CI", "CD Config", "Repo", "Review"]
+    : ["Platform", "Language & CI", "CD Config", "Download"];
 
   const renderStep = () => {
     switch (step) {
       case 1:
+        return (
+          <StepPlatform
+            platform={platform}
+            onPlatformChange={setPlatform}
+          />
+        );
+      case 2:
         return (
           <StepLanguageAndCi
             language={language}
@@ -86,7 +97,7 @@ export default function WizardShell() {
             onAdvancedChange={setAdvanced}
           />
         );
-      case 2:
+      case 3:
         return (
           <StepCdConfig
             cdKey={cdKey}
@@ -97,17 +108,18 @@ export default function WizardShell() {
             onAdvancedChange={setAdvanced}
           />
         );
-      case 3:
-        if (!session) {
+      case 4:
+        if (!isPlatformAuthenticated) {
           return (
-            <div>
-              <h2 className="text-2xl font-bold mb-6">Download Your Workflow</h2>
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
-                <p className="text-sm text-blue-900">
-                  Copy or download your generated GitHub Actions workflow. You can manually add it to your repository or sign in to create a PR.
-                </p>
-              </div>
-            </div>
+            <StepPreview
+              yaml={generatedYaml}
+              workflowName={workflowName || `pipery-${language}`}
+              repo={repo}
+              onComplete={() => setStep(1)}
+              config={{ platform, language, ciValues, cdKey, cdValues, workflowName: workflowName || `pipery-${language}`, triggers }}
+            isAuthenticated={false}
+              platform={platform}
+            />
           );
         }
         return (
@@ -124,17 +136,19 @@ export default function WizardShell() {
             onWorkflowNameChange={setWorkflowName}
             triggers={triggers}
             onTriggersChange={setTriggers}
+            platform={platform}
           />
         );
-      case 4:
+      case 5:
         return (
           <StepPreview
             yaml={generatedYaml}
             workflowName={workflowName || `pipery-${language}`}
             repo={repo}
             onComplete={() => setStep(1)}
-            config={{ language, ciValues, cdKey, cdValues, workflowName: workflowName || `pipery-${language}`, triggers }}
-            isAuthenticated={!!session}
+            config={{ platform, language, ciValues, cdKey, cdValues, workflowName: workflowName || `pipery-${language}`, triggers }}
+            isAuthenticated={isPlatformAuthenticated}
+            platform={platform}
           />
         );
       default:
@@ -144,7 +158,7 @@ export default function WizardShell() {
 
   const handleSignIn = () => {
     const callbackUrl = encodeURIComponent(window.location.href);
-    window.location.href = `https://auth.pipery.dev?callbackUrl=${callbackUrl}`;
+    window.location.href = `https://auth.pipery.dev?provider=${platform}&callbackUrl=${callbackUrl}`;
   };
 
   const handleLogout = () => {
@@ -190,7 +204,15 @@ export default function WizardShell() {
               onClick={handleSignIn}
               className="px-4 py-2 text-sm bg-blue-600 text-white hover:bg-blue-700 rounded transition w-full"
             >
-              Sign in
+              Sign in with {platform === "gitlab" ? "GitLab" : "GitHub"}
+            </button>
+          )}
+          {session && !isPlatformAuthenticated && (
+            <button
+              onClick={handleSignIn}
+              className="px-4 py-2 text-sm bg-blue-600 text-white hover:bg-blue-700 rounded transition w-full"
+            >
+              Switch to {platform === "gitlab" ? "GitLab" : "GitHub"}
             </button>
           )}
         </div>
@@ -209,8 +231,8 @@ export default function WizardShell() {
               ← Back
             </button>
             <button
-              onClick={() => setStep(Math.min(session ? 4 : 3, step + 1))}
-              disabled={(session ? step === 4 : step === 3) || !language}
+              onClick={() => setStep(Math.min(isPlatformAuthenticated ? 5 : 4, step + 1))}
+              disabled={(isPlatformAuthenticated ? step === 5 : step === 4) || (step > 1 && !language)}
               className="px-6 py-2 rounded bg-blue-600 text-white disabled:opacity-50 hover:bg-blue-700"
             >
               Next →

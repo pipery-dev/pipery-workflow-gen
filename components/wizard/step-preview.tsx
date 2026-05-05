@@ -11,6 +11,7 @@ interface StepPreviewProps {
   onComplete: () => void;
   config: any;
   isAuthenticated?: boolean;
+  platform?: "github" | "gitlab";
 }
 
 export default function StepPreview({
@@ -19,7 +20,8 @@ export default function StepPreview({
   repo,
   onComplete,
   config,
-  isAuthenticated = false
+  isAuthenticated = false,
+  platform = "github"
 }: StepPreviewProps) {
   const { data: session } = useSession();
   const [creating, setCreating] = useState(false);
@@ -41,7 +43,7 @@ export default function StepPreview({
     const element = document.createElement("a");
     const file = new Blob([yaml], { type: "text/plain" });
     element.href = URL.createObjectURL(file);
-    element.download = `${workflowName}.yml`;
+    element.download = platform === "gitlab" ? ".gitlab-ci.yml" : `${workflowName}.yml`;
     document.body.appendChild(element);
     element.click();
     document.body.removeChild(element);
@@ -62,8 +64,9 @@ export default function StepPreview({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          owner,
-          repo: repoName,
+          platform,
+          owner: platform === "gitlab" ? undefined : owner,
+          repo: platform === "gitlab" ? repo : repoName,
           workflowName,
           ...config
         })
@@ -92,8 +95,8 @@ export default function StepPreview({
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
         <p className="text-sm text-blue-900">
           {isAuthenticated
-            ? "Review the generated GitHub Actions workflow below. Click \"Create PR\" to commit this workflow to your repository."
-            : "Copy or download the generated GitHub Actions workflow. You can add it manually to your repository, or sign in to create a PR automatically."}
+            ? `Review the generated ${platform === "gitlab" ? "GitLab CI" : "GitHub Actions"} workflow below. Click "${platform === "gitlab" ? "Create MR" : "Create PR"}" to commit it to your repository.`
+            : `Copy or download the generated ${platform === "gitlab" ? "GitLab CI" : "GitHub Actions"} workflow. You can add it manually to your repository, or sign in to create a ${platform === "gitlab" ? "merge request" : "PR"} automatically.`}
         </p>
       </div>
 
@@ -110,9 +113,9 @@ export default function StepPreview({
 
       {prUrl && (
         <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-6">
-          <p className="text-sm text-green-900 mb-3">✓ PR created successfully!</p>
+          <p className="text-sm text-green-900 mb-3">✓ {platform === "gitlab" ? "MR" : "PR"} created successfully!</p>
           <a href={prUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
-            View Pull Request →
+            View {platform === "gitlab" ? "Merge Request" : "Pull Request"} →
           </a>
         </div>
       )}
@@ -142,7 +145,7 @@ export default function StepPreview({
             disabled={creating || !repo || !!prUrl}
             className="px-6 py-2 rounded bg-green-600 text-white disabled:opacity-50 hover:bg-green-700"
           >
-            {creating ? "Creating PR..." : "Create PR"}
+            {creating ? `Creating ${platform === "gitlab" ? "MR" : "PR"}...` : `Create ${platform === "gitlab" ? "MR" : "PR"}`}
           </button>
         )}
 
