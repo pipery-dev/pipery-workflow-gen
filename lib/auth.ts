@@ -4,6 +4,7 @@ declare module "next-auth" {
   interface Session {
     accessToken?: string;
     provider?: "github" | "gitlab";
+    accounts?: Record<"github" | "gitlab", { accessToken?: string; login?: string }>;
     user: {
       login?: string;
       email?: string | null;
@@ -21,8 +22,12 @@ export const authOptions: NextAuthOptions = {
       return token;
     },
     async session({ session, token }: any) {
-      session.accessToken = token.accessToken;
+      session.accounts = token.accounts || {};
       session.provider = token.provider;
+      session.accessToken =
+        session.provider && session.accounts[session.provider]?.accessToken
+          ? session.accounts[session.provider].accessToken
+          : token.accessToken;
       session.user.login = token.login;
       return session;
     }

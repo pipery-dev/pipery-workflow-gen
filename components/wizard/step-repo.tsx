@@ -37,7 +37,12 @@ export default function StepRepo({
   const { data: session } = useSession();
 
   useEffect(() => {
-    if (!session?.accessToken) return;
+    const hasPlatformToken = !!(
+      session?.accounts?.[platform]?.accessToken ||
+      (session?.provider === platform && session?.accessToken) ||
+      (!session?.provider && platform === "github" && session?.accessToken)
+    );
+    if (!hasPlatformToken) return;
 
     fetch(platform === "gitlab" ? "/api/gitlab/projects" : "/api/github/repos")
       .then(r => r.json())

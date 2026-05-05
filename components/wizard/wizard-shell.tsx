@@ -16,8 +16,11 @@ export default function WizardShell() {
 
   const [step, setStep] = useState(1);
   const [platform, setPlatform] = useState<"github" | "gitlab">("github");
-  const isPlatformAuthenticated =
-    !!session && (session.provider === platform || (!session.provider && platform === "github"));
+  const isPlatformAuthenticated = !!(
+    session?.accounts?.[platform]?.accessToken ||
+    (session?.provider === platform && session?.accessToken) ||
+    (!session?.provider && platform === "github" && session?.accessToken)
+  );
   const [language, setLanguage] = useState("");
   const [advanced, setAdvanced] = useState(false);
   const [ciValues, setCiValues] = useState<Record<string, string>>({});
