@@ -20,6 +20,19 @@ function getOctokit(token: string) {
   return new Octokit({ auth: token });
 }
 
+function formatWorkflowWriteError(error: any, path: string) {
+  const scopes = error.response?.headers?.["x-oauth-scopes"];
+  const scopeHint = scopes ? ` Current token scopes: ${scopes}.` : "";
+
+  if (error.status === 404 && path.startsWith(".github/workflows/")) {
+    return new Error(
+      `GitHub rejected writing ${path}. Reconnect GitHub so Pipery receives the workflow OAuth scope, then try creating the PR again.${scopeHint}`
+    );
+  }
+
+  return error;
+}
+
 export async function listRepos(token: string): Promise<Repo[]> {
   const octokit = getOctokit(token);
   const { data: repos } = await octokit.repos.listForAuthenticatedUser({
@@ -92,15 +105,19 @@ export async function createWorkflowPR({
     if (error.status !== 404) throw error;
   }
 
-  await octokit.repos.createOrUpdateFileContents({
-    owner,
-    repo,
-    path,
-    branch,
-    message: `add ${workflowName} pipery workflow`,
-    content: Buffer.from(yamlContent, "utf8").toString("base64"),
-    sha: existingSha
-  });
+  try {
+    await octokit.repos.createOrUpdateFileContents({
+      owner,
+      repo,
+      path,
+      branch,
+      message: `add ${workflowName} pipery workflow`,
+      content: Buffer.from(yamlContent, "utf8").toString("base64"),
+      sha: existingSha
+    });
+  } catch (error: any) {
+    throw formatWorkflowWriteError(error, path);
+  }
 
   const { data: pr } = await octokit.pulls.create({
     owner,

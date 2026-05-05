@@ -9,6 +9,8 @@ The wizard starts by asking whether the user wants a build plan for GitHub Actio
 
 Repository automation uses the OAuth provider selected during sign-in, so GitHub users see GitHub repositories and GitLab users see GitLab projects.
 
+GitHub sign-in must grant the `workflow` OAuth scope so the app can create pull requests that add files under `.github/workflows`.
+
 ## Environment
 
 ```bash
