@@ -30,15 +30,20 @@ function providerCookieNames(provider: PiperyProvider) {
 }
 
 function expireCookie(response: NextResponse, name: string, domain?: string) {
-  response.cookies.set(name, "", {
-    httpOnly: true,
-    secure: true,
-    sameSite: "lax",
-    domain,
-    expires: new Date(0),
-    maxAge: 0,
-    path: "/"
-  });
+  const cookie = [
+    `${name}=`,
+    "Path=/",
+    "Expires=Thu, 01 Jan 1970 00:00:00 GMT",
+    "Max-Age=0",
+    "HttpOnly",
+    "Secure",
+    "SameSite=Lax",
+    domain ? `Domain=${domain}` : ""
+  ]
+    .filter(Boolean)
+    .join("; ");
+
+  response.headers.append("Set-Cookie", cookie);
 }
 
 function matchesLogoutCookieName(name: string, provider?: PiperyProvider) {
