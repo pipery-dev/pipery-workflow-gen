@@ -55,6 +55,9 @@ function generateGitHubActions(config: WorkflowConfig): string {
   if (config.triggers.pullRequest) {
     on.pull_request = {};
   }
+  if (Object.keys(on).length === 0) {
+    on.workflow_dispatch = {};
+  }
 
   const ciSteps: any[] = [
     { uses: "actions/checkout@v5" },
@@ -88,14 +91,14 @@ function generateGitHubActions(config: WorkflowConfig): string {
       "runs-on": "ubuntu-latest",
       if: config.triggers.pushBranches.length > 0
         ? `github.ref == 'refs/heads/${config.triggers.pushBranches[0]}'`
-        : undefined,
+        : "github.event_name != 'pull_request'",
       steps: cdSteps
     };
   }
 
   const workflow = {
     name: config.workflowName || `Pipery ${ci.label} Pipeline`,
-    on: Object.keys(on).length > 0 ? on : undefined,
+    on,
     jobs
   };
 
@@ -112,6 +115,23 @@ function toGitLabVariables(inputs: ActionInput[], userValues: Record<string, str
         .replaceAll("${{ secrets.GITHUB_TOKEN }}", "$GITHUB_TOKEN");
     }
   }
+  return variables;
+}
+
+function mergeGitLabVariables(
+  base: Record<string, string>,
+  inputs: ActionInput[],
+  userValues: Record<string, string>
+) {
+  const variables = { ...base };
+  const values = toGitLabVariables(inputs, userValues);
+
+  for (const [key, value] of Object.entries(values)) {
+    if (Object.prototype.hasOwnProperty.call(userValues, key.toLowerCase()) || variables[key] === undefined) {
+      variables[key] = value;
+    }
+  }
+
   return variables;
 }
 
@@ -139,10 +159,9 @@ function generateGitLabCi(config: WorkflowConfig): string {
   }
   workflowRules.push({ when: "never" });
 
-  const variables = {
-    ...toGitLabVariables(ci.inputs, config.ciValues),
-    ...(cd ? toGitLabVariables(cd.inputs, config.cdValues) : {})
-  };
+  const variables = cd
+    ? mergeGitLabVariables(toGitLabVariables(ci.inputs, config.ciValues), cd.inputs, config.cdValues)
+    : toGitLabVariables(ci.inputs, config.ciValues);
 
   const pipeline = {
     include: includes,
