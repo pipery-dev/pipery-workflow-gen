@@ -2,9 +2,8 @@ import { getServerSession } from "next-auth";
 import { authOptionsForProvider, PIPERY_PROVIDERS, PiperyProvider } from "./auth";
 
 export type PiperySession = {
-  accessToken?: string;
   provider?: PiperyProvider;
-  accounts: Partial<Record<PiperyProvider, { accessToken?: string; login?: string }>>;
+  accounts: Partial<Record<PiperyProvider, { authenticated: true; login?: string }>>;
   user: {
     login?: string;
     email?: string | null;
@@ -13,8 +12,21 @@ export type PiperySession = {
   };
 };
 
+export type RawPiperySession = Omit<PiperySession, "accounts"> & {
+  accessToken?: string;
+  accounts?: Partial<Record<PiperyProvider, { accessToken?: string; login?: string }>>;
+};
+
 export async function getProviderSession(provider: PiperyProvider) {
-  return (await getServerSession(authOptionsForProvider(provider))) as PiperySession | null;
+  return (await getServerSession(authOptionsForProvider(provider))) as RawPiperySession | null;
+}
+
+function publicAccount(account?: { accessToken?: string; login?: string }) {
+  if (!account?.accessToken) return undefined;
+  return {
+    authenticated: true as const,
+    login: account.login
+  };
 }
 
 export async function getPiperySession(): Promise<PiperySession | null> {
@@ -33,7 +45,7 @@ export async function getPiperySession(): Promise<PiperySession | null> {
     const account = session?.accounts?.[provider] || (session?.accessToken ? { accessToken: session.accessToken, login: session.user?.login } : undefined);
     if (!account?.accessToken) continue;
 
-    accounts[provider] = account;
+    accounts[provider] = publicAccount(account);
     activeProvider = activeProvider || provider;
     user = user.login ? user : session?.user || {};
   }
@@ -44,7 +56,6 @@ export async function getPiperySession(): Promise<PiperySession | null> {
 
   return {
     provider: activeProvider,
-    accessToken: activeProvider ? accounts[activeProvider]?.accessToken : undefined,
     accounts,
     user
   };

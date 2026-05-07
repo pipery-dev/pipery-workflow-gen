@@ -40,7 +40,7 @@ export default function StepRepo({
   useEffect(() => {
     const hasPlatformToken = !!(
       platform !== "bitbucket" &&
-      (session?.accounts?.[platform]?.accessToken || (session?.provider === platform && session?.accessToken))
+      session?.accounts?.[platform]?.authenticated
     );
     if (!hasPlatformToken) return;
 

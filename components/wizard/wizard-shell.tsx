@@ -21,7 +21,7 @@ export default function WizardShell() {
   const [step, setStep] = useState(1);
   const [platform, setPlatform] = useState<WorkflowPlatform>("github");
   const hasPlatformLogin = !!(
-    session?.accounts?.[platform]?.accessToken || (session?.provider === platform && session?.accessToken)
+    session?.accounts?.[platform as PiperyProvider]?.authenticated
   );
   const isPlatformAuthenticated = supportsRepoAutomation(platform) && hasPlatformLogin;
   const [language, setLanguage] = useState("");
