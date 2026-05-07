@@ -13,6 +13,13 @@ export async function POST(request: NextRequest) {
 
     console.log("[CREATE-PR] Request:", { platform, owner, repo, workflowName, configKeys: Object.keys(config) });
 
+    if (platform === "bitbucket") {
+      return NextResponse.json(
+        { error: "Bitbucket Cloud build plan generation is supported, but Bitbucket PR creation is not implemented yet. Download bitbucket-pipelines.yml and add it manually." },
+        { status: 400 }
+      );
+    }
+
     if ((!owner && platform === "github") || !repo || !workflowName) {
       console.error("[CREATE-PR] Missing required fields:", { owner, repo, workflowName });
       return NextResponse.json(
@@ -21,7 +28,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const yamlContent = generateWorkflow({ platform, ...config } as WorkflowConfig);
+    const yamlContent = generateWorkflow({ platform, workflowName, ...config } as WorkflowConfig);
     console.log("[CREATE-PR] Generated YAML length:", yamlContent.length);
 
     const result = platform === "gitlab"

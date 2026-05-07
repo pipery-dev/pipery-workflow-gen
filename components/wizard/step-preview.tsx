@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { useSession } from "next-auth/react";
 import YamlPreview from "../yaml-preview";
+import { WorkflowPlatform } from "@/lib/workflow-generator";
 
 interface StepPreviewProps {
   yaml: string;
@@ -11,8 +11,14 @@ interface StepPreviewProps {
   onComplete: () => void;
   config: any;
   isAuthenticated?: boolean;
-  platform?: "github" | "gitlab";
+  platform?: WorkflowPlatform;
 }
+
+const platformLabels: Record<WorkflowPlatform, { file: string; workflow: string; change: string; action: string }> = {
+  github: { file: "GitHub Actions", workflow: "GitHub Actions", change: "PR", action: "Create PR" },
+  gitlab: { file: "GitLab CI", workflow: "GitLab CI", change: "MR", action: "Create MR" },
+  bitbucket: { file: "Bitbucket Pipelines", workflow: "Bitbucket Pipelines", change: "PR", action: "Create PR" }
+};
 
 export default function StepPreview({
   yaml,
@@ -23,11 +29,11 @@ export default function StepPreview({
   isAuthenticated = false,
   platform = "github"
 }: StepPreviewProps) {
-  const { data: session } = useSession();
   const [creating, setCreating] = useState(false);
   const [prUrl, setPrUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const labels = platformLabels[platform];
 
   const handleCopy = async () => {
     try {
@@ -43,7 +49,7 @@ export default function StepPreview({
     const element = document.createElement("a");
     const file = new Blob([yaml], { type: "text/plain" });
     element.href = URL.createObjectURL(file);
-    element.download = platform === "gitlab" ? ".gitlab-ci.yml" : `${workflowName}.yml`;
+    element.download = platform === "gitlab" ? ".gitlab-ci.yml" : platform === "bitbucket" ? "bitbucket-pipelines.yml" : `${workflowName}.yml`;
     document.body.appendChild(element);
     element.click();
     document.body.removeChild(element);
@@ -95,8 +101,8 @@ export default function StepPreview({
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
         <p className="text-sm text-blue-900">
           {isAuthenticated
-            ? `Review the generated ${platform === "gitlab" ? "GitLab CI" : "GitHub Actions"} workflow below. Click "${platform === "gitlab" ? "Create MR" : "Create PR"}" to commit it to your repository.`
-            : `Copy or download the generated ${platform === "gitlab" ? "GitLab CI" : "GitHub Actions"} workflow. You can add it manually to your repository, or sign in to create a ${platform === "gitlab" ? "merge request" : "PR"} automatically.`}
+            ? `Review the generated ${labels.workflow} workflow below. Click "${labels.action}" to commit it to your repository.`
+            : `Copy or download the generated ${labels.file} workflow. You can add it manually to your repository${platform === "bitbucket" ? "." : `, or sign in to create a ${platform === "gitlab" ? "merge request" : "PR"} automatically.`}`}
         </p>
       </div>
 
@@ -113,7 +119,7 @@ export default function StepPreview({
 
       {prUrl && (
         <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-6">
-          <p className="text-sm text-green-900 mb-3">✓ {platform === "gitlab" ? "MR" : "PR"} created successfully!</p>
+          <p className="text-sm text-green-900 mb-3">✓ {labels.change} created successfully!</p>
           <a href={prUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
             View {platform === "gitlab" ? "Merge Request" : "Pull Request"} →
           </a>
@@ -145,7 +151,7 @@ export default function StepPreview({
             disabled={creating || !repo || !!prUrl}
             className="px-6 py-2 rounded bg-green-600 text-white disabled:opacity-50 hover:bg-green-700"
           >
-            {creating ? `Creating ${platform === "gitlab" ? "MR" : "PR"}...` : `Create ${platform === "gitlab" ? "MR" : "PR"}`}
+            {creating ? `Creating ${labels.change}...` : labels.action}
           </button>
         )}
 

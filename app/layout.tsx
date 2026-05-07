@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Pipery Workflow Generator",
-  description: "Generate and create GitHub Actions workflows for your Pipery projects",
+  description: "Generate Pipery build plans for GitHub Actions, GitLab CI, and Bitbucket Pipelines",
   icons: {
     icon: "/icon.png",
     shortcut: "/icon.png",

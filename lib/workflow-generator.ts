@@ -1,8 +1,10 @@
 import yaml from "js-yaml";
 import { CI_ACTIONS, CD_ACTIONS, ActionInput } from "./action-catalog";
 
+export type WorkflowPlatform = "github" | "gitlab" | "bitbucket";
+
 export interface WorkflowConfig {
-  platform?: "github" | "gitlab";
+  platform?: WorkflowPlatform;
   language: string;
   ciValues: Record<string, string>;
   cdKey: string | null;
@@ -14,6 +16,7 @@ export interface WorkflowConfig {
 export function workflowFilePath(config: Pick<WorkflowConfig, "platform" | "workflowName">): string {
   const platform = config.platform || "github";
   if (platform === "gitlab") return ".gitlab-ci.yml";
+  if (platform === "bitbucket") return "bitbucket-pipelines.yml";
   return `.github/workflows/${config.workflowName || "pipery"}.yml`;
 }
 
@@ -29,8 +32,12 @@ function buildWith(inputs: ActionInput[], userValues: Record<string, string>) {
 }
 
 export function generateWorkflow(config: WorkflowConfig): string {
-  if ((config.platform || "github") === "gitlab") {
+  const platform = config.platform || "github";
+  if (platform === "gitlab") {
     return generateGitLabCi(config);
+  }
+  if (platform === "bitbucket") {
+    return generateBitbucketPipelines(config);
   }
   return generateGitHubActions(config);
 }
@@ -141,6 +148,61 @@ function generateGitLabCi(config: WorkflowConfig): string {
     include: includes,
     workflow: { rules: workflowRules },
     variables
+  };
+
+  return yaml.dump(pipeline, { lineWidth: -1, noRefs: true, quotingType: '"' });
+}
+
+function bitbucketImportSource(actionId: string) {
+  return actionId.split("/")[1] || actionId;
+}
+
+function bitbucketPipelineName(actionId: string) {
+  return bitbucketImportSource(actionId);
+}
+
+function generateBitbucketPipelines(config: WorkflowConfig): string {
+  const ci = CI_ACTIONS[config.language];
+  if (!ci) throw new Error(`Unknown language: ${config.language}`);
+
+  const cd = config.cdKey ? CD_ACTIONS[config.cdKey] : null;
+  const ciSource = bitbucketImportSource(ci.actionId);
+  const imports: Record<string, string> = {
+    [ciSource]: `${ciSource}:master`
+  };
+
+  if (cd) {
+    const cdSource = bitbucketImportSource(cd.actionId);
+    imports[cdSource] = `${cdSource}:master`;
+  }
+
+  const ciImport = `${bitbucketPipelineName(ci.actionId)}@${ciSource}`;
+  const cdImport = cd ? `${bitbucketPipelineName(cd.actionId)}@${bitbucketImportSource(cd.actionId)}` : undefined;
+  const pipelines: Record<string, unknown> = {};
+
+  if (config.triggers.pushBranches.length > 0) {
+    pipelines.branches = Object.fromEntries(
+      config.triggers.pushBranches.map(branch => [branch, { import: ciImport }])
+    );
+  }
+
+  if (config.triggers.pullRequest) {
+    pipelines["pull-requests"] = {
+      "**": { import: ciImport }
+    };
+  }
+
+  if (cdImport) {
+    pipelines.custom = {
+      [`deploy-${config.cdKey}`]: { import: cdImport }
+    };
+  }
+
+  const pipeline = {
+    definitions: {
+      imports
+    },
+    pipelines: Object.keys(pipelines).length > 0 ? pipelines : { default: { import: ciImport } }
   };
 
   return yaml.dump(pipeline, { lineWidth: -1, noRefs: true, quotingType: '"' });

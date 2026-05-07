@@ -1,9 +1,9 @@
 "use client";
 
 import { useState, useMemo, useEffect } from "react";
-import { useSession } from "next-auth/react";
 import { CI_ACTIONS, CD_ACTIONS } from "@/lib/action-catalog";
-import { generateWorkflow } from "@/lib/workflow-generator";
+import { generateWorkflow, WorkflowPlatform } from "@/lib/workflow-generator";
+import { usePiperySession } from "../use-pipery-session";
 import StepPlatform from "./step-platform";
 import StepLanguageAndCi from "./step-language-and-ci";
 import StepCdConfig from "./step-cd-config";
@@ -11,16 +11,22 @@ import StepRepo from "./step-repo";
 import StepPreview from "./step-preview";
 import YamlPreview from "../yaml-preview";
 
+const platformLabels = {
+  github: "GitHub",
+  gitlab: "GitLab",
+  bitbucket: "Bitbucket"
+};
+const supportsRepoAutomation = (platform: WorkflowPlatform) => platform === "github" || platform === "gitlab";
+
 export default function WizardShell() {
-  const { data: session } = useSession();
+  const { data: session } = usePiperySession();
 
   const [step, setStep] = useState(1);
-  const [platform, setPlatform] = useState<"github" | "gitlab">("github");
-  const isPlatformAuthenticated = !!(
-    session?.accounts?.[platform]?.accessToken ||
-    (session?.provider === platform && session?.accessToken) ||
-    (!session?.provider && platform === "github" && session?.accessToken)
+  const [platform, setPlatform] = useState<WorkflowPlatform>("github");
+  const hasPlatformLogin = !!(
+    session?.accounts?.[platform]?.accessToken || (session?.provider === platform && session?.accessToken)
   );
+  const isPlatformAuthenticated = supportsRepoAutomation(platform) && hasPlatformLogin;
   const [language, setLanguage] = useState("");
   const [advanced, setAdvanced] = useState(false);
   const [ciValues, setCiValues] = useState<Record<string, string>>({});
@@ -160,14 +166,20 @@ export default function WizardShell() {
   };
 
   const handleSignIn = () => {
-    const callbackUrl = encodeURIComponent(window.location.href);
-    window.location.href = `https://auth.pipery.dev?provider=${platform}&callbackUrl=${callbackUrl}`;
+    const next = `${window.location.pathname}${window.location.search}${window.location.hash}` || "/wizard";
+    const callback = new URL("/auth/callback", window.location.origin);
+    callback.searchParams.set("provider", platform);
+    callback.searchParams.set("next", next);
+    const callbackUrl = encodeURIComponent(callback.toString());
+    window.location.href = `/api/auth/start?provider=${platform}&callbackUrl=${callbackUrl}`;
   };
 
-  const handleLogout = () => {
+  const handleLogout = (provider?: "github" | "gitlab" | "bitbucket") => {
     const callbackUrl = encodeURIComponent("https://start.pipery.dev");
-    window.location.href = `https://auth.pipery.dev/api/auth/logout?callbackUrl=${callbackUrl}`;
+    const providerParam = provider ? `&provider=${provider}` : "";
+    window.location.href = `https://auth.pipery.dev/api/auth/logout?callbackUrl=${callbackUrl}${providerParam}`;
   };
+  const authenticatedProviders = session?.accounts ? (Object.keys(session.accounts) as Array<"github" | "gitlab" | "bitbucket">) : [];
 
   return (
     <div className="flex h-screen bg-slate-50">
@@ -196,26 +208,39 @@ export default function WizardShell() {
 
         <div className="mt-auto space-y-2">
           {session ? (
-            <button
-              onClick={handleLogout}
-              className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded transition w-full text-left"
-            >
-              Sign out
-            </button>
+            <div className="space-y-2">
+              {authenticatedProviders.map(provider => (
+                <button
+                  key={provider}
+                  onClick={() => handleLogout(provider)}
+                  className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded transition w-full text-left"
+                >
+                  Sign out {platformLabels[provider]}
+                </button>
+              ))}
+              {authenticatedProviders.length > 1 && (
+                <button
+                  onClick={() => handleLogout()}
+                  className="px-4 py-2 text-sm text-slate-500 hover:bg-slate-100 rounded transition w-full text-left"
+                >
+                  Sign out all
+                </button>
+              )}
+            </div>
           ) : (
             <button
               onClick={handleSignIn}
               className="px-4 py-2 text-sm bg-blue-600 text-white hover:bg-blue-700 rounded transition w-full"
             >
-              Sign in with {platform === "gitlab" ? "GitLab" : "GitHub"}
+              Sign in with {platformLabels[platform]}
             </button>
           )}
-          {session && !isPlatformAuthenticated && (
+          {session && supportsRepoAutomation(platform) && !isPlatformAuthenticated && (
             <button
               onClick={handleSignIn}
               className="px-4 py-2 text-sm bg-blue-600 text-white hover:bg-blue-700 rounded transition w-full"
             >
-              Switch to {platform === "gitlab" ? "GitLab" : "GitHub"}
+              Switch to {platformLabels[platform]}
             </button>
           )}
         </div>

@@ -1,8 +1,10 @@
 "use client";
 
+import { WorkflowPlatform } from "@/lib/workflow-generator";
+
 interface StepPlatformProps {
-  platform: "github" | "gitlab";
-  onPlatformChange: (platform: "github" | "gitlab") => void;
+  platform: WorkflowPlatform;
+  onPlatformChange: (platform: WorkflowPlatform) => void;
 }
 
 export default function StepPlatform({ platform, onPlatformChange }: StepPlatformProps) {
@@ -16,6 +18,11 @@ export default function StepPlatform({ platform, onPlatformChange }: StepPlatfor
       key: "gitlab" as const,
       title: "GitLab CI",
       description: "Generate .gitlab-ci.yml and create a GitLab merge request."
+    },
+    {
+      key: "bitbucket" as const,
+      title: "Bitbucket Cloud",
+      description: "Generate bitbucket-pipelines.yml using Bitbucket shared pipeline imports."
     }
   ];
 

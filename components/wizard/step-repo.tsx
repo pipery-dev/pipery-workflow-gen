@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect } from "react";
-import { useSession } from "next-auth/react";
+import { usePiperySession } from "../use-pipery-session";
+import { WorkflowPlatform } from "@/lib/workflow-generator";
 
 interface StepRepoProps {
   repos: any[];
@@ -16,7 +17,7 @@ interface StepRepoProps {
   onWorkflowNameChange: (name: string) => void;
   triggers: { pushBranches: string[]; pullRequest: boolean };
   onTriggersChange: (triggers: { pushBranches: string[]; pullRequest: boolean }) => void;
-  platform: "github" | "gitlab";
+  platform: WorkflowPlatform;
 }
 
 export default function StepRepo({
@@ -34,13 +35,12 @@ export default function StepRepo({
   onTriggersChange,
   platform
 }: StepRepoProps) {
-  const { data: session } = useSession();
+  const { data: session } = usePiperySession();
 
   useEffect(() => {
     const hasPlatformToken = !!(
-      session?.accounts?.[platform]?.accessToken ||
-      (session?.provider === platform && session?.accessToken) ||
-      (!session?.provider && platform === "github" && session?.accessToken)
+      platform !== "bitbucket" &&
+      (session?.accounts?.[platform]?.accessToken || (session?.provider === platform && session?.accessToken))
     );
     if (!hasPlatformToken) return;
 
