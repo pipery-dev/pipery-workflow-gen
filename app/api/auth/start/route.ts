@@ -13,19 +13,35 @@ function signedState(payload: Record<string, unknown>, secret: string) {
   return `${encodedPayload}.${sign(encodedPayload, secret)}`;
 }
 
-function safeCallbackUrl(value: string | null, origin: string) {
-  if (!value) return new URL("/auth/callback?provider=github&next=/wizard", origin).toString();
+function defaultCallbackUrl(origin: string, provider: Provider) {
+  const callback = new URL("/auth/callback", origin);
+  callback.searchParams.set("provider", provider);
+  callback.searchParams.set("next", "/wizard");
+  return callback.toString();
+}
+
+function safeCallbackUrl(value: string | null, origin: string, provider: Provider) {
+  if (!value) return defaultCallbackUrl(origin, provider);
 
   try {
     const url = new URL(value);
-    if (url.origin === origin) return url.toString();
+    if (url.origin === origin) {
+      if (url.pathname === "/auth/callback") {
+        url.searchParams.set("provider", provider);
+      }
+      return url.toString();
+    }
   } catch {
     if (value.startsWith("/") && !value.startsWith("//")) {
-      return new URL(value, origin).toString();
+      const url = new URL(value, origin);
+      if (url.pathname === "/auth/callback") {
+        url.searchParams.set("provider", provider);
+      }
+      return url.toString();
     }
   }
 
-  return new URL("/auth/callback?provider=github&next=/wizard", origin).toString();
+  return defaultCallbackUrl(origin, provider);
 }
 
 export async function GET(request: NextRequest) {
@@ -38,7 +54,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "PIPERY_AUTH_STATE_SECRET is not configured." }, { status: 500 });
   }
 
-  const callbackUrl = safeCallbackUrl(request.nextUrl.searchParams.get("callbackUrl"), request.nextUrl.origin);
+  const callbackUrl = safeCallbackUrl(request.nextUrl.searchParams.get("callbackUrl"), request.nextUrl.origin, provider);
   const payload = {
     clientId,
     provider,

@@ -4,6 +4,8 @@ import { useState, useMemo, useEffect } from "react";
 import { CI_ACTIONS, CD_ACTIONS } from "@/lib/action-catalog";
 import { generateWorkflow, WorkflowPlatform } from "@/lib/workflow-generator";
 import { usePiperySession } from "../use-pipery-session";
+import type { PiperyProvider } from "@/lib/auth";
+import ProfileMenu from "../profile-menu";
 import StepPlatform from "./step-platform";
 import StepLanguageAndCi from "./step-language-and-ci";
 import StepCdConfig from "./step-cd-config";
@@ -11,11 +13,6 @@ import StepRepo from "./step-repo";
 import StepPreview from "./step-preview";
 import YamlPreview from "../yaml-preview";
 
-const platformLabels = {
-  github: "GitHub",
-  gitlab: "GitLab",
-  bitbucket: "Bitbucket"
-};
 const supportsRepoAutomation = (platform: WorkflowPlatform) => platform === "github" || platform === "gitlab";
 
 export default function WizardShell() {
@@ -165,21 +162,21 @@ export default function WizardShell() {
     }
   };
 
-  const handleSignIn = () => {
+  const handleSignIn = (provider: PiperyProvider = platform as PiperyProvider) => {
     const next = `${window.location.pathname}${window.location.search}${window.location.hash}` || "/wizard";
     const callback = new URL("/auth/callback", window.location.origin);
-    callback.searchParams.set("provider", platform);
+    callback.searchParams.set("provider", provider);
     callback.searchParams.set("next", next);
     const callbackUrl = encodeURIComponent(callback.toString());
-    window.location.href = `/api/auth/start?provider=${platform}&callbackUrl=${callbackUrl}`;
+    window.location.href = `/api/auth/start?provider=${provider}&callbackUrl=${callbackUrl}`;
   };
 
-  const handleLogout = (provider?: "github" | "gitlab" | "bitbucket") => {
-    const callbackUrl = encodeURIComponent("https://start.pipery.dev");
+  const handleLogout = (provider?: PiperyProvider) => {
+    const next = `${window.location.pathname}${window.location.search}${window.location.hash}` || "/wizard";
     const providerParam = provider ? `&provider=${provider}` : "";
-    window.location.href = `https://auth.pipery.dev/api/auth/logout?callbackUrl=${callbackUrl}${providerParam}`;
+    window.location.href = `/api/auth/logout?next=${encodeURIComponent(next)}${providerParam}`;
   };
-  const authenticatedProviders = session?.accounts ? (Object.keys(session.accounts) as Array<"github" | "gitlab" | "bitbucket">) : [];
+  const authenticatedProviders = session?.accounts ? (Object.keys(session.accounts) as PiperyProvider[]) : [];
 
   return (
     <div className="flex h-screen bg-slate-50">
@@ -206,43 +203,14 @@ export default function WizardShell() {
           </nav>
         </div>
 
-        <div className="mt-auto space-y-2">
-          {session ? (
-            <div className="space-y-2">
-              {authenticatedProviders.map(provider => (
-                <button
-                  key={provider}
-                  onClick={() => handleLogout(provider)}
-                  className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded transition w-full text-left"
-                >
-                  Sign out {platformLabels[provider]}
-                </button>
-              ))}
-              {authenticatedProviders.length > 1 && (
-                <button
-                  onClick={() => handleLogout()}
-                  className="px-4 py-2 text-sm text-slate-500 hover:bg-slate-100 rounded transition w-full text-left"
-                >
-                  Sign out all
-                </button>
-              )}
-            </div>
-          ) : (
-            <button
-              onClick={handleSignIn}
-              className="px-4 py-2 text-sm bg-blue-600 text-white hover:bg-blue-700 rounded transition w-full"
-            >
-              Sign in with {platformLabels[platform]}
-            </button>
-          )}
-          {session && supportsRepoAutomation(platform) && !isPlatformAuthenticated && (
-            <button
-              onClick={handleSignIn}
-              className="px-4 py-2 text-sm bg-blue-600 text-white hover:bg-blue-700 rounded transition w-full"
-            >
-              Switch to {platformLabels[platform]}
-            </button>
-          )}
+        <div className="mt-auto">
+          <ProfileMenu
+            session={session}
+            platform={platform}
+            authenticatedProviders={authenticatedProviders}
+            onSignIn={handleSignIn}
+            onLogout={handleLogout}
+          />
         </div>
       </div>
 
