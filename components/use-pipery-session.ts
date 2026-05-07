@@ -10,7 +10,7 @@ export function usePiperySession() {
   useEffect(() => {
     let cancelled = false;
 
-    fetch("/api/pipery/session", { credentials: "include" })
+    fetch("/api/pipery/session", { credentials: "include", cache: "no-store" })
       .then(response => response.json())
       .then(data => {
         if (cancelled) return;

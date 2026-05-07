@@ -41,6 +41,12 @@ function expireCookie(response: NextResponse, name: string, domain?: string) {
   });
 }
 
+function matchesLogoutCookieName(name: string, provider?: PiperyProvider) {
+  const isAuthCookie = name.includes("next-auth") || name.includes("pipery-auth");
+  if (!isAuthCookie) return false;
+  return provider ? name.includes(provider) || LEGACY_COOKIE_NAMES.includes(name) : true;
+}
+
 export function expirePiperyAuthCookies(response: NextResponse, request: Request, provider?: PiperyProvider) {
   const requestCookieNames = (request.headers.get("cookie") || "")
     .split(";")
@@ -52,13 +58,19 @@ export function expirePiperyAuthCookies(response: NextResponse, request: Request
   const cookiePrefixes = baseCookieNames.map(name => `${name}.`);
   const namesToExpire = new Set([
     ...baseCookieNames,
-    ...requestCookieNames.filter(name => baseCookieNames.includes(name) || cookiePrefixes.some(prefix => name.startsWith(prefix)))
+    ...requestCookieNames.filter(
+      name =>
+        baseCookieNames.includes(name) ||
+        cookiePrefixes.some(prefix => name.startsWith(prefix)) ||
+        matchesLogoutCookieName(name, provider)
+    )
   ]);
 
   for (const name of namesToExpire) {
     expireCookie(response, name);
     if (!name.startsWith("__Host-")) {
       expireCookie(response, name, ".pipery.dev");
+      expireCookie(response, name, "pipery.dev");
       expireCookie(response, name, "start.pipery.dev");
     }
   }
