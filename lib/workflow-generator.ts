@@ -14,7 +14,7 @@ export interface WorkflowConfig {
   graphStages?: WorkflowStageConfig[];
 }
 
-export type WorkflowStageType = "ci" | "cd";
+export type WorkflowStageType = "source" | "ci" | "cd";
 
 export interface WorkflowStage {
   id: string;
@@ -32,14 +32,26 @@ export interface WorkflowStage {
 export interface WorkflowStageConfig {
   id?: string;
   type: WorkflowStageType;
-  actionKey: string;
+  actionKey?: string;
   actionId?: string;
   actionProvider?: WorkflowPlatform;
   label?: string;
   icon?: string;
   sourcePath?: string;
-  values: Record<string, string>;
+  values?: Record<string, string>;
   dependsOn?: string[];
+}
+
+export interface WorkflowTemplate {
+  platform?: WorkflowPlatform;
+  workflowName?: string;
+  language?: string;
+  ciValues?: Record<string, string>;
+  cdKey?: string | null;
+  cdValues?: Record<string, string>;
+  triggers?: Partial<WorkflowConfig["triggers"]>;
+  stages?: WorkflowStageConfig[];
+  graphStages?: WorkflowStageConfig[];
 }
 
 export function workflowFilePath(config: Pick<WorkflowConfig, "platform" | "workflowName">): string {
@@ -61,6 +73,15 @@ function buildWith(inputs: ActionInput[], userValues: Record<string, string>) {
 }
 
 function actionInputs(stage: WorkflowStage): ActionInput[] {
+  if (stage.type === "source") {
+    return [
+      { name: "repository", description: "Optional owner/repo to checkout instead of the current repository.", default: "", basic: true },
+      { name: "ref", description: "Optional branch, tag, or SHA to checkout.", default: "", basic: true },
+      { name: "path", description: "Directory where the source should be checked out.", default: ".", basic: true },
+      { name: "fetch-depth", description: "Number of commits to fetch. Use 0 for full history.", default: "1", basic: false },
+      { name: "token", description: "Token used to fetch private source repositories.", default: "", basic: false, secret: true }
+    ];
+  }
   const catalog = stage.type === "ci" ? CI_ACTIONS : CD_ACTIONS;
   const action = catalog[stage.actionKey];
   return action?.inputs || [
@@ -69,6 +90,13 @@ function actionInputs(stage: WorkflowStage): ActionInput[] {
 }
 
 function stageValues(stage: WorkflowStage) {
+  if (stage.type === "source") {
+    return buildWith(actionInputs(stage), {
+      ...stage.values,
+      path: stage.sourcePath || stage.values.path || "."
+    });
+  }
+
   return buildWith(actionInputs(stage), {
     ...stage.values,
     project_path: stage.sourcePath || stage.values.project_path || "."
@@ -116,18 +144,37 @@ function legacyStages(config: WorkflowConfig): WorkflowStage[] {
 }
 
 function resolveGraphStage(stage: WorkflowStageConfig, index: number, previousStage?: WorkflowStage): WorkflowStage {
+  const values = stage.values || {};
+  if (stage.type === "source") {
+    return {
+      id: stage.id || `source-checkout-${index + 1}`,
+      type: "source",
+      actionKey: stage.actionKey || "checkout",
+      actionId: stage.actionId || "actions/checkout",
+      actionProvider: stage.actionProvider || "github",
+      label: stage.label || "Source Checkout",
+      icon: stage.icon || "SRC",
+      sourcePath: stage.sourcePath || values.path || ".",
+      values,
+      dependsOn: stage.dependsOn || (previousStage ? [previousStage.id] : [])
+    };
+  }
+
   const catalog = stage.type === "ci" ? CI_ACTIONS : CD_ACTIONS;
-  const action = catalog[stage.actionKey];
-  if (!action && !stage.actionId) throw new Error(`Unknown ${stage.type.toUpperCase()} stage: ${stage.actionKey}`);
+  const actionKey = stage.actionKey || "";
+  const action = catalog[actionKey];
+  if (!action && !stage.actionId) throw new Error(`Unknown ${stage.type.toUpperCase()} stage: ${actionKey}`);
 
   return {
     ...stage,
-    id: stage.id || `${stage.type}-${stage.actionKey}-${index + 1}`,
+    id: stage.id || `${stage.type}-${actionKey}-${index + 1}`,
+    actionKey,
     actionId: stage.actionId || action!.actionId,
     actionProvider: stage.actionProvider || "github",
-    label: stage.label || `${action?.label || stage.actionKey} ${stage.type.toUpperCase()}`,
+    label: stage.label || `${action?.label || actionKey} ${stage.type.toUpperCase()}`,
     icon: stage.icon || action?.icon || stage.type.toUpperCase(),
-    sourcePath: stage.sourcePath || stage.values.project_path || ".",
+    sourcePath: stage.sourcePath || values.project_path || ".",
+    values,
     dependsOn: stage.dependsOn || (previousStage ? [previousStage.id] : [])
   };
 }
@@ -178,6 +225,72 @@ function toBitbucketVariables(stage: WorkflowStage) {
   return Object.fromEntries(Object.entries(values).map(([key, value]) => [key.toUpperCase(), value]));
 }
 
+function checkoutStep(stage?: WorkflowStage) {
+  if (!stage) return { uses: "actions/checkout@v5" };
+  return {
+    name: stage.label,
+    uses: actionWithDefaultRef(stage.actionId, "v5"),
+    with: stageValues(stage)
+  };
+}
+
+function sourceDependencies(stage: WorkflowStage, stages: WorkflowStage[]) {
+  const byId = new Map(stages.map(item => [item.id, item]));
+  const seen = new Set<string>();
+  const sources: WorkflowStage[] = [];
+
+  const visit = (id: string) => {
+    if (seen.has(id)) return;
+    seen.add(id);
+    const dependency = byId.get(id);
+    if (!dependency) return;
+    if (dependency.type === "source") {
+      sources.push(dependency);
+      return;
+    }
+    dependency.dependsOn.forEach(visit);
+  };
+
+  stage.dependsOn.forEach(visit);
+  return sources;
+}
+
+function sourceVariables(stage: WorkflowStage, stages: WorkflowStage[]) {
+  const source = sourceDependencies(stage, stages)[0];
+  if (!source) return {};
+  const values = stageValues(source) || {};
+  return Object.fromEntries(Object.entries({
+    PIPERY_SOURCE_REPOSITORY: values.repository || "",
+    PIPERY_SOURCE_REF: values.ref || "",
+    PIPERY_SOURCE_PATH: values.path || source.sourcePath || ".",
+    PIPERY_SOURCE_FETCH_DEPTH: values["fetch-depth"] || ""
+  }).filter(([, value]) => value !== ""));
+}
+
+export function workflowConfigFromTemplate(template: WorkflowTemplate): WorkflowConfig {
+  const graphStages = template.graphStages || template.stages;
+  const firstCiStage = graphStages?.find(stage => stage.type === "ci");
+  const firstCdStage = graphStages?.find(stage => stage.type === "cd");
+
+  return {
+    platform: template.platform || "github",
+    language: template.language || firstCiStage?.actionKey || "npm",
+    ciValues: template.ciValues || firstCiStage?.values || { project_path: "." },
+    cdKey: template.cdKey ?? firstCdStage?.actionKey ?? null,
+    cdValues: template.cdValues || firstCdStage?.values || {},
+    workflowName: template.workflowName || "pipery-workflow",
+    triggers: {
+      pushBranches: template.triggers?.pushBranches || ["main"],
+      pullRequest: template.triggers?.pullRequest ?? true
+    },
+    ...(graphStages ? { graphStages } : {})
+  };
+}
+
+export function generateWorkflowFromTemplate(template: WorkflowTemplate): string {
+  return generateWorkflow(workflowConfigFromTemplate(template));
+}
+
 export function generateWorkflow(config: WorkflowConfig): string {
   const platform = config.platform || "github";
   if (platform === "gitlab") {
@@ -191,6 +304,7 @@ export function generateWorkflow(config: WorkflowConfig): string {
 
 function generateGitHubActions(config: WorkflowConfig): string {
   const stages = graphStages(config);
+  const executableStages = stages.filter(stage => stage.type !== "source");
   const firstStage = stages[0];
   const jobIds = jobIdMap(stages);
 
@@ -205,19 +319,27 @@ function generateGitHubActions(config: WorkflowConfig): string {
     on.workflow_dispatch = {};
   }
 
-  const jobs = Object.fromEntries(stages.map((stage, index) => {
+  const jobs = Object.fromEntries(executableStages.map((stage, index) => {
     const jobId = safeJobId(stage, index);
-    const needs = stage.dependsOn.map(id => jobIds.get(id)).filter(Boolean);
+    const needs = stage.dependsOn
+      .map(id => stages.find(item => item.id === id))
+      .filter((item): item is WorkflowStage => !!item && item.type !== "source")
+      .map(item => jobIds.get(item.id))
+      .filter(Boolean);
+    const checkoutStages = sourceDependencies(stage, stages);
+    const checkoutSteps = checkoutStages.length ? checkoutStages.map(checkoutStep) : [checkoutStep()];
+    const stageStep: Record<string, unknown> = {
+      name: stage.label,
+      uses: actionWithDefaultRef(stage.actionId),
+      with: stageValues(stage)
+    };
+    if (stageStep.with === undefined) delete stageStep.with;
     const job: Record<string, unknown> = {
       "runs-on": "ubuntu-latest",
       steps: [
-        { uses: "actions/checkout@v5" },
-        {
-          name: stage.label,
-          uses: actionWithDefaultRef(stage.actionId),
-          with: stageValues(stage)
-        }
-      ].filter((step: any) => step.with !== undefined || step.uses)
+        ...checkoutSteps,
+        stageStep
+      ]
     };
     if (stage.type === "ci") {
       job.permissions = { contents: "write", packages: "write" };
@@ -277,9 +399,9 @@ function mergeGitLabVariables(
 
 function generateGitLabCi(config: WorkflowConfig): string {
   const stages = graphStages(config);
-  const includes: any[] = stages.map(gitLabIncludeFor);
+  const includes = stages.filter(stage => stage.type !== "source").map(gitLabIncludeFor);
 
-  const workflowRules: any[] = [];
+  const workflowRules: Array<Record<string, string>> = [];
   if (config.triggers.pullRequest) {
     workflowRules.push({ if: "$CI_PIPELINE_SOURCE == \"merge_request_event\"" });
   }
@@ -292,19 +414,27 @@ function generateGitLabCi(config: WorkflowConfig): string {
 
   if (config.graphStages?.length) {
     const jobIds = jobIdMap(stages);
-    const jobs = Object.fromEntries(stages.map((stage, index) => {
+    const executableStages = stages.filter(stage => stage.type !== "source");
+    const jobs = Object.fromEntries(executableStages.map((stage, index) => {
       const jobId = safeJobId(stage, index);
-      const needs = stage.dependsOn.map(id => jobIds.get(id)).filter(Boolean);
+      const needs = stage.dependsOn
+        .map(id => stages.find(item => item.id === id))
+        .filter((item): item is WorkflowStage => !!item && item.type !== "source")
+        .map(item => jobIds.get(item.id))
+        .filter(Boolean);
       const job: Record<string, unknown> = {
         stage: jobId,
         trigger: {
           include: gitLabIncludeFor(stage),
           strategy: "depend"
         },
-        variables: toGitLabVariables(actionInputs(stage), {
-          ...stage.values,
-          project_path: stage.sourcePath || stage.values.project_path || "."
-        })
+        variables: {
+          ...sourceVariables(stage, stages),
+          ...toGitLabVariables(actionInputs(stage), {
+            ...stage.values,
+            project_path: stage.sourcePath || stage.values.project_path || "."
+          })
+        }
       };
       if (needs.length > 0) job.needs = needs;
       return [jobId, job];
@@ -312,7 +442,7 @@ function generateGitLabCi(config: WorkflowConfig): string {
 
     return yaml.dump({
       workflow: { rules: workflowRules },
-      stages: stages.map((stage, index) => safeJobId(stage, index)),
+      stages: executableStages.map((stage, index) => safeJobId(stage, index)),
       ...jobs
     }, { lineWidth: -1, noRefs: true, quotingType: '"' });
   }
@@ -344,7 +474,7 @@ function generateBitbucketPipelines(config: WorkflowConfig): string {
   const ciStages = stages.filter(stage => stage.type === "ci");
   const cdStages = stages.filter(stage => stage.type === "cd");
   const imports = Object.fromEntries(
-    stages.map(stage => {
+    stages.filter(stage => stage.type !== "source").map(stage => {
       const { ref } = actionRepoAndRef(stage.actionId, "master");
       const source = bitbucketImportSource(stage.actionId);
       return [source, `${source}:${ref}`];
@@ -356,12 +486,16 @@ function generateBitbucketPipelines(config: WorkflowConfig): string {
     return `${bitbucketPipelineName(stage.actionId)}@${source}`;
   };
   const stageStep = (stage: WorkflowStage) => {
-    const variables = toBitbucketVariables(stage);
+    const variables = {
+      ...sourceVariables(stage, stages),
+      ...(toBitbucketVariables(stage) || {})
+    };
+
     return {
       step: {
         name: stage.label,
         import: stageImport(stage),
-        ...(variables ? { variables } : {})
+        ...(Object.keys(variables).length ? { variables } : {})
       }
     };
   };
@@ -371,9 +505,9 @@ function generateBitbucketPipelines(config: WorkflowConfig): string {
       : { import: stageImport(stage) }
   );
   const pipelines: Record<string, unknown> = {};
-  const stagePipeline = stages.length === 1
+  const stagePipeline = stages.length === 1 && stages[0].type !== "source"
     ? importStep(stages[0])
-    : stages.map(stageStep);
+    : stages.filter(stage => stage.type !== "source").map(stageStep);
   const ciPipeline = ciStages.length === 1
     ? importStep(ciStages[0])
     : ciStages.map(stageStep);

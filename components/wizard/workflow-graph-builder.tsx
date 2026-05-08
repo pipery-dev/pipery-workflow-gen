@@ -1,8 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import { CI_ACTIONS, CD_ACTIONS, ActionInput } from "@/lib/action-catalog";
 import { generateWorkflow, WorkflowPlatform, WorkflowStage, WorkflowStageType } from "@/lib/workflow-generator";
+import workflowTemplates from "@/lib/workflow-templates.json";
 import type { PiperyProvider } from "@/lib/auth";
 import type { PiperySession } from "@/lib/provider-session";
 import ProfileMenu from "../profile-menu";
@@ -21,9 +23,36 @@ type ImportedAction = {
   inputs: ActionInput[];
 };
 
+type ToolbarAction = ImportedAction;
+
 type RepoRecord = {
   id: string | number;
   fullName: string;
+};
+
+type WorkflowTemplateStage = {
+  type: WorkflowStageType;
+  actionKey?: string;
+  sourcePath?: string;
+  values?: Record<string, string>;
+};
+
+type WorkflowTemplate = {
+  id: string;
+  name: string;
+  description: string;
+  tags: string[];
+  workflowName: string;
+  stages: WorkflowTemplateStage[];
+};
+
+const workflowTemplatePresets = workflowTemplates as unknown as WorkflowTemplate[];
+
+type PublicAction = {
+  actionId: string;
+  label: string;
+  description: string;
+  stars: number;
 };
 
 const platformMeta: Record<WorkflowPlatform, { label: string; icon: string; bg: string; border: string }> = {
@@ -34,11 +63,30 @@ const platformMeta: Record<WorkflowPlatform, { label: string; icon: string; bg: 
 
 const defaultTriggers = { pushBranches: ["main"], pullRequest: true };
 
+const sourceInputs: ActionInput[] = [
+  { name: "repository", description: "Optional owner/repo to checkout instead of the workflow repository.", default: "", basic: true },
+  { name: "ref", description: "Optional branch, tag, or SHA to checkout.", default: "", basic: true },
+  { name: "path", description: "Directory where the source should be checked out.", default: ".", basic: true },
+  { name: "fetch-depth", description: "Number of commits to fetch. Use 0 for full history.", default: "1", basic: false },
+  { name: "token", description: "Token used to fetch private source repositories.", default: "", basic: false, secret: true }
+];
+
+const sourceAction: ImportedAction = {
+  key: "checkout",
+  type: "source",
+  actionId: "actions/checkout",
+  actionProvider: "github",
+  label: "Source Checkout",
+  icon: "SRC",
+  inputs: sourceInputs
+};
+
 function defaults(inputs: ActionInput[], sourcePath = ".") {
   return Object.fromEntries(inputs.map(input => [input.name, input.name === "project_path" ? sourcePath : input.default]));
 }
 
 function catalogAction(type: WorkflowStageType, key: string, imports: ImportedAction[]) {
+  if (type === "source") return sourceAction;
   const imported = imports.find(action => action.key === key && action.type === type);
   if (imported) return imported;
   const action = type === "ci" ? CI_ACTIONS[key] : CD_ACTIONS[key];
@@ -46,6 +94,7 @@ function catalogAction(type: WorkflowStageType, key: string, imports: ImportedAc
 }
 
 function stageInputs(stage: WorkflowStage, imports: ImportedAction[]) {
+  if (stage.type === "source") return sourceInputs;
   return catalogAction(stage.type, stage.actionKey, imports)?.inputs || [
     { name: "project_path", description: "Path to the source tree.", default: ".", basic: true }
   ];
@@ -67,6 +116,45 @@ function nearestConnections(stages: GraphStage[], candidate: Pick<GraphStage, "i
 
 function ordered(stages: GraphStage[]) {
   return [...stages].sort((left, right) => left.x - right.x || left.y - right.y);
+}
+
+function workflowStages(stages: GraphStage[]) {
+  return ordered(stages).map(stage => {
+    const { x, y, ...workflowStage } = stage;
+    void x;
+    void y;
+    return workflowStage;
+  });
+}
+
+function matchesQuery(query: string, ...values: string[]) {
+  const normalized = query.trim().toLowerCase();
+  if (!normalized) return true;
+  return values.some(value => value.toLowerCase().includes(normalized));
+}
+
+function CollapsibleSection({
+  id,
+  title,
+  open,
+  onToggle,
+  children
+}: {
+  id: string;
+  title: string;
+  open: boolean;
+  onToggle: (id: string) => void;
+  children: ReactNode;
+}) {
+  return (
+    <section className="rounded border border-slate-200 bg-white/80">
+      <button onClick={() => onToggle(id)} className="flex w-full items-center justify-between px-3 py-2 text-left text-sm font-semibold text-slate-900">
+        <span>{title}</span>
+        <span className="text-xs text-slate-500">{open ? "Hide" : "Show"}</span>
+      </button>
+      {open && <div className="border-t border-slate-100 p-3">{children}</div>}
+    </section>
+  );
 }
 
 function platformRepoUrl(platform: WorkflowPlatform) {
@@ -100,6 +188,12 @@ export default function WorkflowGraphBuilder({
   const [imports, setImports] = useState<ImportedAction[]>([]);
   const [importType, setImportType] = useState<WorkflowStageType>("ci");
   const [importActionId, setImportActionId] = useState("");
+  const [stageQuery, setStageQuery] = useState("");
+  const [workflowQuery, setWorkflowQuery] = useState("");
+  const [showPublicActions, setShowPublicActions] = useState(false);
+  const [publicActions, setPublicActions] = useState<PublicAction[]>([]);
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const idSequence = useRef(0);
   const [repo, setRepo] = useState("");
   const [repos, setRepos] = useState<RepoRecord[]>([]);
   const [branches, setBranches] = useState<string[]>([]);
@@ -111,16 +205,38 @@ export default function WorkflowGraphBuilder({
   const authenticatedProviders = session?.accounts ? (Object.keys(session.accounts) as PiperyProvider[]) : [];
   const selected = stages.find(stage => stage.id === selectedId) || null;
 
-  const toolbarActions = useMemo(() => {
-    const ci = Object.entries(CI_ACTIONS).map(([key, action]) => ({ key, type: "ci" as const, ...action }));
-    const cd = Object.entries(CD_ACTIONS).map(([key, action]) => ({ key, type: "cd" as const, ...action }));
-    return [...ci, ...cd, ...imports];
-  }, [imports]);
+  const toolbarActions = useMemo<ToolbarAction[]>(() => {
+    const source = [sourceAction];
+    const ci = Object.entries(CI_ACTIONS).map(([key, action]) => ({ key, type: "ci" as const, actionProvider: "github" as WorkflowPlatform, ...action }));
+    const cd = Object.entries(CD_ACTIONS).map(([key, action]) => ({ key, type: "cd" as const, actionProvider: "github" as WorkflowPlatform, ...action }));
+    const githubPublicActions = showPublicActions && platform === "github"
+      ? publicActions.map(action => ({
+          key: `public-${action.actionId}`,
+          type: importType,
+          actionId: action.actionId,
+          actionProvider: "github" as WorkflowPlatform,
+          label: action.label,
+          icon: importType === "ci" ? "CI" : "CD",
+          inputs: [{ name: "project_path", description: "Path to the source tree.", default: ".", basic: true }]
+        }))
+      : [];
+    return [...source, ...ci, ...cd, ...imports, ...githubPublicActions]
+      .filter(action => matchesQuery(stageQuery, action.label, action.type, action.key, action.actionId));
+  }, [imports, importType, platform, publicActions, showPublicActions, stageQuery]);
+
+  const filteredTemplates = useMemo(() => (
+    workflowTemplatePresets.filter(template => (
+      matchesQuery(workflowQuery, template.name, template.description, template.tags.join(" "))
+    ))
+  ), [workflowQuery]);
+
+  const sectionOpen = (id: string) => collapsed[id] !== true;
+  const toggleSection = (id: string) => setCollapsed(current => ({ ...current, [id]: !current[id] }));
 
   const yaml = useMemo(() => {
     if (stages.length === 0) return "# Drag CI and CD stages into the graph to generate a workflow.";
     try {
-    const graphStages = ordered(stages).map(({ x: _x, y: _y, ...stage }) => stage);
+      const graphStages = workflowStages(stages);
       return generateWorkflow({
         platform,
         language: graphStages.find(stage => stage.type === "ci")?.actionKey || graphStages[0]?.actionKey || "npm",
@@ -136,17 +252,18 @@ export default function WorkflowGraphBuilder({
     }
   }, [platform, stages, workflowName, triggers]);
 
-  const addStage = (type: WorkflowStageType, key: string, point?: { x: number; y: number }) => {
-    const action = catalogAction(type, key, imports);
+  const addStage = (type: WorkflowStageType, key: string, point?: { x: number; y: number }, toolbarAction?: ToolbarAction) => {
+    const action = toolbarAction || toolbarActions.find(item => item.type === type && item.key === key) || catalogAction(type, key, imports);
     if (!action) return;
+    idSequence.current += 1;
     const sourcePath = ".";
     const next: GraphStage = {
-      id: `${type}-${key}-${Date.now()}`,
+      id: `${type}-${key}-${idSequence.current}`,
       type,
       actionKey: key,
       actionId: action.actionId,
       actionProvider: action.actionProvider || "github",
-      label: `${action.label} ${type.toUpperCase()}`,
+      label: type === "source" ? action.label : `${action.label} ${type.toUpperCase()}`,
       icon: action.icon,
       sourcePath,
       values: defaults(action.inputs, sourcePath),
@@ -157,6 +274,37 @@ export default function WorkflowGraphBuilder({
     next.dependsOn = nearestConnections(stages, next);
     setStages(current => [...current, next]);
     setSelectedId(next.id);
+  };
+
+  const applyTemplate = (template: WorkflowTemplate) => {
+    const nextStages: GraphStage[] = template.stages.map((stage, index) => {
+      const values = stage.values || {};
+      const actionKey = stage.actionKey || (stage.type === "source" ? "checkout" : "");
+      const action = catalogAction(stage.type, actionKey, imports);
+      const sourcePath = stage.sourcePath || values.project_path || values.path || ".";
+      const previousStage = template.stages[index - 1];
+      const previousActionKey = previousStage?.actionKey || (previousStage?.type === "source" ? "checkout" : "");
+      return {
+        id: `${template.id}-${stage.type}-${actionKey}-${index + 1}`,
+        type: stage.type,
+        actionKey,
+        actionId: action?.actionId || "actions/checkout",
+        actionProvider: action?.actionProvider || "github",
+        label: action?.label ? (stage.type === "source" ? action.label : `${action.label} ${stage.type.toUpperCase()}`) : "Source Checkout",
+        icon: action?.icon || "SRC",
+        sourcePath,
+        values: {
+          ...(action ? defaults(action.inputs, sourcePath) : {}),
+          ...values
+        },
+        dependsOn: previousStage ? [`${template.id}-${previousStage.type}-${previousActionKey}-${index}`] : [],
+        x: 90 + index * 190,
+        y: 140
+      };
+    });
+    setWorkflowName(template.workflowName);
+    setStages(nextStages);
+    setSelectedId(nextStages[0]?.id || null);
   };
 
   const updateStage = (id: string, patch: Partial<GraphStage>) => {
@@ -207,6 +355,21 @@ export default function WorkflowGraphBuilder({
     }
   };
 
+  const searchPublicActions = async () => {
+    setError("");
+    setBusy(true);
+    try {
+      const response = await fetch(`/api/actions/public?q=${encodeURIComponent(stageQuery || "github action")}`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Unable to search public GitHub actions.");
+      setPublicActions(data.actions || []);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const addImportedAction = async () => {
     const actionId = importActionId.trim();
     if (!actionId) return;
@@ -220,7 +383,8 @@ export default function WorkflowGraphBuilder({
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Unable to import action.");
-      const key = `custom-${Date.now()}`;
+      idSequence.current += 1;
+      const key = `custom-${idSequence.current}`;
       setImports(current => [
         ...current,
         {
@@ -259,7 +423,7 @@ export default function WorkflowGraphBuilder({
     setBusy(true);
     setError("");
     try {
-      const graphStages = ordered(stages).map(({ x: _x, y: _y, ...stage }) => stage);
+      const graphStages = workflowStages(stages);
       const response = await fetch("/api/workflow/create-pr", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -317,24 +481,55 @@ export default function WorkflowGraphBuilder({
 
       <main className="grid min-h-[calc(100vh-73px)] grid-cols-1 gap-0 lg:grid-cols-[320px_minmax(0,1fr)_420px]">
         <aside className="border-b border-slate-200 bg-white/90 p-4 lg:border-b-0 lg:border-r">
-          <div className="space-y-5">
-            <div>
-              <label className="mb-1 block text-xs font-semibold uppercase text-slate-500">Workflow</label>
+          <div className="space-y-3">
+            <CollapsibleSection id="workflow" title="Workflow" open={sectionOpen("workflow")} onToggle={toggleSection}>
+              <label className="mb-1 block text-xs font-semibold uppercase text-slate-500">Name</label>
               <input value={workflowName} onChange={event => setWorkflowName(event.target.value)} className="w-full rounded border border-slate-300 px-3 py-2 text-sm" />
-            </div>
+            </CollapsibleSection>
 
-            <div>
-              <div className="mb-2 flex items-center justify-between">
-                <h2 className="text-sm font-semibold text-slate-900">Stage Toolbar</h2>
-                <span className="text-xs text-slate-500">Drag or click</span>
+            <CollapsibleSection id="templates" title="Workflows" open={sectionOpen("templates")} onToggle={toggleSection}>
+              <input
+                value={workflowQuery}
+                onChange={event => setWorkflowQuery(event.target.value)}
+                placeholder="Search language or deploy stack"
+                className="mb-3 w-full rounded border border-slate-300 px-3 py-2 text-sm"
+              />
+              <div className="max-h-56 space-y-2 overflow-auto pr-1">
+                {filteredTemplates.map(template => (
+                  <button
+                    key={template.id}
+                    onClick={() => applyTemplate(template)}
+                    className="w-full rounded border border-slate-200 bg-white p-3 text-left text-xs hover:border-slate-400"
+                  >
+                    <span className="block font-semibold text-slate-900">{template.name}</span>
+                    <span className="mt-1 block text-slate-600">{template.description}</span>
+                    <span className="mt-2 block truncate text-[10px] uppercase text-slate-500">{template.tags.join(" · ")}</span>
+                  </button>
+                ))}
               </div>
+            </CollapsibleSection>
+
+            <CollapsibleSection id="stages" title="Stages" open={sectionOpen("stages")} onToggle={toggleSection}>
+              <input
+                value={stageQuery}
+                onChange={event => setStageQuery(event.target.value)}
+                placeholder="Search stages and actions"
+                className="mb-3 w-full rounded border border-slate-300 px-3 py-2 text-sm"
+              />
+              {platform === "github" && (
+                <label className="mb-3 flex items-center gap-2 text-xs text-slate-700">
+                  <input type="checkbox" checked={showPublicActions} onChange={event => setShowPublicActions(event.target.checked)} />
+                  <span>Show public GitHub actions</span>
+                  <button type="button" onClick={searchPublicActions} className="ml-auto rounded border border-slate-300 px-2 py-1 font-semibold">Search</button>
+                </label>
+              )}
               <div className="grid grid-cols-3 gap-2">
                 {toolbarActions.map(action => (
                   <button
                     key={`${action.type}-${action.key}`}
                     draggable
                     onDragStart={event => event.dataTransfer.setData("application/pipery-stage", JSON.stringify({ type: action.type, key: action.key }))}
-                    onClick={() => addStage(action.type, action.key)}
+                    onClick={() => addStage(action.type, action.key, undefined, action)}
                     className="min-h-16 rounded border border-slate-200 bg-white px-2 py-2 text-left text-xs shadow-sm hover:border-slate-400"
                     title={`${action.label} ${action.type.toUpperCase()}`}
                   >
@@ -344,10 +539,9 @@ export default function WorkflowGraphBuilder({
                   </button>
                 ))}
               </div>
-            </div>
+            </CollapsibleSection>
 
-            <div className="rounded border border-slate-200 bg-slate-50 p-3">
-              <h2 className="mb-2 text-sm font-semibold">Import Action</h2>
+            <CollapsibleSection id="import" title="Import Action" open={sectionOpen("import")} onToggle={toggleSection}>
               <div className="mb-2 grid grid-cols-2 gap-2">
                 {(["ci", "cd"] as WorkflowStageType[]).map(type => (
                   <button
@@ -369,10 +563,9 @@ export default function WorkflowGraphBuilder({
                 Add to Toolbar
               </button>
               <p className="mt-2 text-xs text-slate-500">Private actions work when the selected platform token can read them.</p>
-            </div>
+            </CollapsibleSection>
 
-            <div>
-              <h2 className="mb-2 text-sm font-semibold">Repository</h2>
+            <CollapsibleSection id="repository" title="Repository" open={sectionOpen("repository")} onToggle={toggleSection}>
               {!authenticated ? (
                 <button onClick={() => onSignIn(platform)} className="w-full rounded bg-slate-900 px-3 py-2 text-sm font-semibold text-white">
                   Connect {platformMeta[platform].label}
@@ -390,13 +583,14 @@ export default function WorkflowGraphBuilder({
                   </select>
                 </div>
               )}
-            </div>
+            </CollapsibleSection>
 
-            <div className="space-y-2">
-              <h2 className="text-sm font-semibold">Triggers</h2>
-              <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={triggers.pullRequest} onChange={event => setTriggers({ ...triggers, pullRequest: event.target.checked })} /> Pull request</label>
-              <input value={triggers.pushBranches.join(", ")} onChange={event => setTriggers({ ...triggers, pushBranches: event.target.value.split(",").map(v => v.trim()).filter(Boolean) })} className="w-full rounded border border-slate-300 px-3 py-2 text-sm" placeholder={branches[0] || "main"} />
-            </div>
+            <CollapsibleSection id="triggers" title="Triggers" open={sectionOpen("triggers")} onToggle={toggleSection}>
+              <div className="space-y-2">
+                <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={triggers.pullRequest} onChange={event => setTriggers({ ...triggers, pullRequest: event.target.checked })} /> Pull request</label>
+                <input value={triggers.pushBranches.join(", ")} onChange={event => setTriggers({ ...triggers, pushBranches: event.target.value.split(",").map(v => v.trim()).filter(Boolean) })} className="w-full rounded border border-slate-300 px-3 py-2 text-sm" placeholder={branches[0] || "main"} />
+              </div>
+            </CollapsibleSection>
           </div>
         </aside>
 
@@ -414,7 +608,8 @@ export default function WorkflowGraphBuilder({
             const payload = event.dataTransfer.getData("application/pipery-stage");
             if (!payload) return;
             const { type, key } = JSON.parse(payload);
-            addStage(type, key, { x: event.clientX - rect.left, y: event.clientY - rect.top });
+            const action = toolbarActions.find(item => item.type === type && item.key === key);
+            addStage(type, key, { x: event.clientX - rect.left, y: event.clientY - rect.top }, action);
           }}
         >
           <div className="absolute inset-0 bg-[linear-gradient(rgba(15,23,42,.06)_1px,transparent_1px),linear-gradient(90deg,rgba(15,23,42,.06)_1px,transparent_1px)] bg-[size:28px_28px]" />
@@ -499,36 +694,46 @@ export default function WorkflowGraphBuilder({
           {prUrl && <a className="mb-4 block text-sm font-semibold text-blue-700 underline" href={prUrl} target="_blank" rel="noreferrer">View Pull Request</a>}
           {error && <div className="mb-4 rounded border border-red-200 bg-red-50 p-3 text-sm text-red-900">{error}</div>}
 
-          {selected ? (
-            <div className="mb-5 rounded border border-slate-200 p-3">
-              <div className="mb-3 flex items-center justify-between">
-                <h2 className="font-semibold">Edit Stage</h2>
-                <button onClick={() => removeStage(selected.id)} className="text-sm text-red-700">Remove</button>
-              </div>
-              <div className="space-y-3">
-                <InputField label="Label" description="Display name on the graph." value={selected.label} onChange={value => updateStage(selected.id, { label: value })} />
-                <InputField label="Source path" description="Monorepo path shown below the stage icon." value={selected.sourcePath} onChange={value => updateStage(selected.id, { sourcePath: value, values: { ...selected.values, project_path: value } })} />
-                {stageInputs(selected, imports).map(input => (
-                  <InputField
-                    key={input.name}
-                    label={input.name}
-                    description={input.description}
-                    value={selected.values[input.name] ?? input.default}
-                    onChange={value => updateStage(selected.id, { values: { ...selected.values, [input.name]: value } })}
-                    isSecret={input.secret}
-                  />
-                ))}
-              </div>
-              <div className="mt-3 rounded bg-slate-50 p-2 text-xs text-slate-600">
-                Connected to: {selected.dependsOn.length ? selected.dependsOn.map(id => stages.find(stage => stage.id === id)?.label || id).join(", ") : "none"}
-              </div>
-            </div>
-          ) : (
-            <div className="mb-5 rounded border border-slate-200 p-3 text-sm text-slate-600">Select a stage to edit path, inputs, and inspect dynamic connections.</div>
-          )}
+          <div className="space-y-3">
+            <CollapsibleSection id="yaml" title="Generated YAML" open={sectionOpen("yaml")} onToggle={toggleSection}>
+              <YamlPreview yaml={yaml} className="max-h-80" />
+            </CollapsibleSection>
 
-          <h2 className="mb-2 text-sm font-semibold">Generated YAML</h2>
-          <YamlPreview yaml={yaml} />
+            <CollapsibleSection id="inspector" title="Stage Inspector" open={sectionOpen("inspector")} onToggle={toggleSection}>
+              {selected ? (
+                <div>
+                  <div className="mb-3 flex items-center justify-between">
+                    <h2 className="font-semibold">Edit Stage</h2>
+                    <button onClick={() => removeStage(selected.id)} className="text-sm text-red-700">Remove</button>
+                  </div>
+                  <div className="space-y-3">
+                    <InputField label="Label" description="Display name on the graph." value={selected.label} onChange={value => updateStage(selected.id, { label: value })} />
+                    <InputField
+                      label={selected.type === "source" ? "Checkout path" : "Source path"}
+                      description={selected.type === "source" ? "Directory where this repository should be checked out." : "Monorepo path shown below the stage icon."}
+                      value={selected.sourcePath}
+                      onChange={value => updateStage(selected.id, { sourcePath: value, values: { ...selected.values, [selected.type === "source" ? "path" : "project_path"]: value } })}
+                    />
+                    {stageInputs(selected, imports).filter(input => !(selected.type === "source" && input.name === "path")).map(input => (
+                      <InputField
+                        key={input.name}
+                        label={input.name}
+                        description={input.description}
+                        value={selected.values[input.name] ?? input.default}
+                        onChange={value => updateStage(selected.id, { values: { ...selected.values, [input.name]: value } })}
+                        isSecret={input.secret}
+                      />
+                    ))}
+                  </div>
+                  <div className="mt-3 rounded bg-slate-50 p-2 text-xs text-slate-600">
+                    Connected to: {selected.dependsOn.length ? selected.dependsOn.map(id => stages.find(stage => stage.id === id)?.label || id).join(", ") : "none"}
+                  </div>
+                </div>
+              ) : (
+                <div className="rounded border border-slate-200 p-3 text-sm text-slate-600">Select a stage to edit path, inputs, and inspect dynamic connections.</div>
+              )}
+            </CollapsibleSection>
+          </div>
         </aside>
       </main>
     </div>

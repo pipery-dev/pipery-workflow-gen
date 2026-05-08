@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import yaml from "js-yaml";
-import { generateWorkflow, workflowFilePath } from "./workflow-generator";
+import { generateWorkflow, generateWorkflowFromTemplate, workflowConfigFromTemplate, workflowFilePath } from "./workflow-generator";
 
 const baseConfig = {
   language: "npm",
@@ -110,6 +110,89 @@ describe("generateWorkflow", () => {
     expect(parsed.jobs["deploy-web"].steps[1].with).toMatchObject({
       project_path: "deploy/web",
       release_name: "web"
+    });
+  });
+
+  it("uses source checkout stages as editable checkout steps for dependent GitHub jobs", () => {
+    const parsed = yaml.load(generateWorkflow({
+      ...baseConfig,
+      platform: "github",
+      workflowName: "source-checkout",
+      graphStages: [
+        {
+          id: "source",
+          type: "source",
+          actionKey: "checkout",
+          sourcePath: "workspace",
+          values: { repository: "acme/app", ref: "release/1", path: "workspace", "fetch-depth": "0" },
+          dependsOn: []
+        },
+        {
+          id: "build",
+          type: "ci",
+          actionKey: "npm",
+          values: { project_path: "workspace/web" },
+          dependsOn: ["source"]
+        }
+      ]
+    })) as any;
+
+    expect(Object.keys(parsed.jobs)).toEqual(["build"]);
+    expect(parsed.jobs.build).not.toHaveProperty("needs");
+    expect(parsed.jobs.build.steps[0]).toEqual({
+      name: "Source Checkout",
+      uses: "actions/checkout@v5",
+      with: {
+        repository: "acme/app",
+        ref: "release/1",
+        path: "workspace",
+        "fetch-depth": "0"
+      }
+    });
+    expect(parsed.jobs.build.steps[1]).toMatchObject({
+      name: "JavaScript CI",
+      uses: "pipery-dev/pipery-npm-ci@v1",
+      with: { project_path: "workspace/web" }
+    });
+  });
+
+  it("generates e2e workflow templates from JSON stage shape", () => {
+    const template = JSON.parse(JSON.stringify({
+      platform: "github",
+      workflowName: "template-e2e",
+      triggers: { pushBranches: ["main"], pullRequest: false },
+      stages: [
+        { id: "source", type: "source", sourcePath: "repo", values: { path: "repo", ref: "main" } },
+        { id: "build", type: "ci", actionKey: "python", values: { project_path: "repo/api" }, dependsOn: ["source"] },
+        { id: "deploy", type: "cd", actionKey: "argocd", values: { project_path: "repo/deploy", argocd_app: "api" }, dependsOn: ["build"] }
+      ]
+    }));
+
+    const config = workflowConfigFromTemplate(template);
+    expect(config).toMatchObject({
+      platform: "github",
+      language: "python",
+      cdKey: "argocd",
+      workflowName: "template-e2e",
+      triggers: { pushBranches: ["main"], pullRequest: false }
+    });
+
+    const parsed = yaml.load(generateWorkflowFromTemplate(template)) as any;
+    expect(Object.keys(parsed.jobs)).toEqual(["build", "deploy"]);
+    expect(parsed.jobs.build.steps[0]).toMatchObject({
+      name: "Source Checkout",
+      uses: "actions/checkout@v5",
+      with: { path: "repo", ref: "main" }
+    });
+    expect(parsed.jobs.deploy.needs).toBe("build");
+    expect(parsed.jobs.deploy.steps[0]).toMatchObject({
+      name: "Source Checkout",
+      uses: "actions/checkout@v5",
+      with: { path: "repo", ref: "main" }
+    });
+    expect(parsed.jobs.deploy.steps[1]).toMatchObject({
+      uses: "pipery-dev/pipery-argocd-cd@v1",
+      with: expect.objectContaining({ project_path: "repo/deploy", argocd_app: "api" })
     });
   });
 
@@ -287,6 +370,39 @@ describe("generateWorkflow", () => {
     expect(parsed.deploy.trigger.include).toEqual({ remote: "https://raw.githubusercontent.com/pipery-dev/pipery-argocd-cd/v1/.gitlab-ci.yml" });
   });
 
+  it("passes source checkout settings to GitLab graph trigger jobs", () => {
+    const parsed = yaml.load(generateWorkflow({
+      ...baseConfig,
+      platform: "gitlab",
+      graphStages: [
+        {
+          id: "source",
+          type: "source",
+          actionKey: "checkout",
+          sourcePath: "workspace",
+          values: { repository: "git@gitlab.com:acme/app.git", ref: "release", path: "workspace" },
+          dependsOn: []
+        },
+        {
+          id: "build",
+          type: "ci",
+          actionKey: "npm",
+          values: { project_path: "workspace/web" },
+          dependsOn: ["source"]
+        }
+      ]
+    })) as any;
+
+    expect(parsed.stages).toEqual(["build"]);
+    expect(parsed).not.toHaveProperty("source");
+    expect(parsed.build.variables).toMatchObject({
+      PIPERY_SOURCE_REPOSITORY: "git@gitlab.com:acme/app.git",
+      PIPERY_SOURCE_REF: "release",
+      PIPERY_SOURCE_PATH: "workspace",
+      PROJECT_PATH: "workspace/web"
+    });
+  });
+
   it("generates Bitbucket imports for branches and pull requests", () => {
     const parsed = yaml.load(generateWorkflow({ ...baseConfig, platform: "bitbucket" })) as any;
 
@@ -351,6 +467,47 @@ describe("generateWorkflow", () => {
     expect(parsed.pipelines.branches.main).toEqual([
       { step: { name: "JavaScript CI", import: "pipery-npm-ci@pipery-npm-ci", variables: { PROJECT_PATH: "apps/web" } } },
       { step: { name: "Helm CD", import: "pipery-helm-cd@pipery-helm-cd", variables: expect.objectContaining({ PROJECT_PATH: "deploy/web" }) } }
+    ]);
+  });
+
+  it("keeps editable source checkout stages in Bitbucket graph pipelines", () => {
+    const parsed = yaml.load(generateWorkflow({
+      ...baseConfig,
+      platform: "bitbucket",
+      graphStages: [
+        {
+          id: "source",
+          type: "source",
+          actionKey: "checkout",
+          sourcePath: "workspace",
+          values: { repository: "git@bitbucket.org:acme/app.git", path: "workspace" },
+          dependsOn: []
+        },
+        {
+          id: "build",
+          type: "ci",
+          actionKey: "npm",
+          sourcePath: "workspace/web",
+          values: { project_path: "workspace/web" },
+          dependsOn: ["source"]
+        }
+      ]
+    })) as any;
+
+    expect(parsed.definitions.imports).toEqual({ "pipery-npm-ci": "pipery-npm-ci:master" });
+    expect(parsed.pipelines.branches.main).toEqual([
+      {
+        step: {
+          name: "JavaScript CI",
+          import: "pipery-npm-ci@pipery-npm-ci",
+          variables: {
+            PIPERY_SOURCE_REPOSITORY: "git@bitbucket.org:acme/app.git",
+            PIPERY_SOURCE_PATH: "workspace",
+            PIPERY_SOURCE_FETCH_DEPTH: "1",
+            PROJECT_PATH: "workspace/web"
+          }
+        }
+      }
     ]);
   });
 
