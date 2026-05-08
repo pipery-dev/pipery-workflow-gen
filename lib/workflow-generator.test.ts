@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import yaml from "js-yaml";
 import { generateWorkflow, generateWorkflowFromTemplate, workflowConfigFromTemplate, workflowFilePath } from "./workflow-generator";
+import { loadWorkflowTemplates } from "./workflow-template-loader";
 
 const baseConfig = {
   language: "npm",
@@ -21,6 +22,23 @@ describe("workflowFilePath", () => {
   it("falls back to a GitHub workflow path and default name", () => {
     expect(workflowFilePath({ workflowName: "build" })).toBe(".github/workflows/build.yml");
     expect(workflowFilePath({ platform: "github", workflowName: "" })).toBe(".github/workflows/pipery.yml");
+  });
+});
+
+describe("loadWorkflowTemplates", () => {
+  it("loads predefined workflow templates from repo YAML", async () => {
+    const templates = await loadWorkflowTemplates();
+
+    expect(templates.map(template => template.id)).toContain("node-helm");
+    expect(templates[0]).toMatchObject({
+      name: "Node.js to Helm",
+      workflowName: "node-helm-delivery",
+      stages: [
+        { type: "source", actionKey: "checkout" },
+        { type: "ci", actionKey: "npm" },
+        { type: "cd", actionKey: "helm" }
+      ]
+    });
   });
 });
 

@@ -1,0 +1,105 @@
+workflows:
+  - id: node-helm
+    name: Node.js to Helm
+    description: Build a Node.js app, package it, and deploy with Helm.
+    tags: [javascript, node, helm, kubernetes]
+    workflowName: node-helm-delivery
+    stages:
+      - type: source
+        actionKey: checkout
+        sourcePath: "."
+        values:
+          repository: ""
+          ref: ""
+          path: "."
+      - type: ci
+        actionKey: npm
+        sourcePath: apps/web
+        values:
+          project_path: apps/web
+      - type: cd
+        actionKey: helm
+        sourcePath: deploy/charts/web
+        values:
+          project_path: deploy/charts/web
+          release_name: web
+
+  - id: python-cloudrun
+    name: Python to Cloud Run
+    description: Test a Python service and deploy a container to Cloud Run.
+    tags: [python, cloud run, gcp, docker]
+    workflowName: python-cloudrun-delivery
+    stages:
+      - type: source
+        actionKey: checkout
+        sourcePath: "."
+        values:
+          repository: ""
+          ref: ""
+          path: "."
+      - type: ci
+        actionKey: python
+        sourcePath: services/api
+        values:
+          project_path: services/api
+          tests_path: tests
+      - type: cd
+        actionKey: cloudrun
+        sourcePath: deploy/cloudrun
+        values:
+          project_path: deploy/cloudrun
+          service_name: api
+          region: us-central1
+
+  - id: docker-argocd
+    name: Docker to ArgoCD
+    description: Build a Docker image and promote it through ArgoCD.
+    tags: [docker, argocd, kubernetes]
+    workflowName: docker-argocd-delivery
+    stages:
+      - type: source
+        actionKey: checkout
+        sourcePath: "."
+        values:
+          repository: ""
+          ref: ""
+          path: "."
+      - type: ci
+        actionKey: docker
+        sourcePath: services/app
+        values:
+          project_path: services/app
+          dockerfile: Dockerfile
+      - type: cd
+        actionKey: argocd
+        sourcePath: deploy/argocd
+        values:
+          project_path: deploy/argocd
+          argocd_app: app
+
+  - id: terraform-plan-apply
+    name: Terraform Plan and Apply
+    description: Run Terraform validation, planning, and controlled apply.
+    tags: [terraform, infrastructure, iac]
+    workflowName: terraform-delivery
+    stages:
+      - type: source
+        actionKey: checkout
+        sourcePath: "."
+        values:
+          repository: ""
+          ref: ""
+          path: "."
+      - type: ci
+        actionKey: terraform
+        sourcePath: infra
+        values:
+          project_path: infra
+          working_directory: infra
+      - type: cd
+        actionKey: terraform
+        sourcePath: infra
+        values:
+          project_path: infra
+          working_directory: infra
+          plan_only: "false"

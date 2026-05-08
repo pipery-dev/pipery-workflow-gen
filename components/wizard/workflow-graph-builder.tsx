@@ -1,10 +1,10 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { CI_ACTIONS, CD_ACTIONS, ActionInput } from "@/lib/action-catalog";
 import { generateWorkflow, WorkflowPlatform, WorkflowStage, WorkflowStageType } from "@/lib/workflow-generator";
-import workflowTemplates from "@/lib/workflow-templates.json";
+import type { WorkflowTemplatePreset } from "@/lib/workflow-template-loader";
 import type { PiperyProvider } from "@/lib/auth";
 import type { PiperySession } from "@/lib/provider-session";
 import ProfileMenu from "../profile-menu";
@@ -29,24 +29,6 @@ type RepoRecord = {
   id: string | number;
   fullName: string;
 };
-
-type WorkflowTemplateStage = {
-  type: WorkflowStageType;
-  actionKey?: string;
-  sourcePath?: string;
-  values?: Record<string, string>;
-};
-
-type WorkflowTemplate = {
-  id: string;
-  name: string;
-  description: string;
-  tags: string[];
-  workflowName: string;
-  stages: WorkflowTemplateStage[];
-};
-
-const workflowTemplatePresets = workflowTemplates as unknown as WorkflowTemplate[];
 
 type PublicAction = {
   actionId: string;
@@ -190,6 +172,8 @@ export default function WorkflowGraphBuilder({
   const [importActionId, setImportActionId] = useState("");
   const [stageQuery, setStageQuery] = useState("");
   const [workflowQuery, setWorkflowQuery] = useState("");
+  const [workflowTemplatePresets, setWorkflowTemplatePresets] = useState<WorkflowTemplatePreset[]>([]);
+  const [templatesLoading, setTemplatesLoading] = useState(true);
   const [showPublicActions, setShowPublicActions] = useState(false);
   const [publicActions, setPublicActions] = useState<PublicAction[]>([]);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
@@ -232,6 +216,26 @@ export default function WorkflowGraphBuilder({
 
   const sectionOpen = (id: string) => collapsed[id] !== true;
   const toggleSection = (id: string) => setCollapsed(current => ({ ...current, [id]: !current[id] }));
+
+  useEffect(() => {
+    let active = true;
+    async function loadTemplates() {
+      try {
+        const response = await fetch("/api/workflows/templates", { cache: "no-store" });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Unable to load workflow templates.");
+        if (active) setWorkflowTemplatePresets(data.workflows || []);
+      } catch (err) {
+        if (active) setError((err as Error).message);
+      } finally {
+        if (active) setTemplatesLoading(false);
+      }
+    }
+    loadTemplates();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const yaml = useMemo(() => {
     if (stages.length === 0) return "# Drag CI and CD stages into the graph to generate a workflow.";
@@ -276,7 +280,7 @@ export default function WorkflowGraphBuilder({
     setSelectedId(next.id);
   };
 
-  const applyTemplate = (template: WorkflowTemplate) => {
+  const applyTemplate = (template: WorkflowTemplatePreset) => {
     const nextStages: GraphStage[] = template.stages.map((stage, index) => {
       const values = stage.values || {};
       const actionKey = stage.actionKey || (stage.type === "source" ? "checkout" : "");
@@ -495,6 +499,9 @@ export default function WorkflowGraphBuilder({
                 className="mb-3 w-full rounded border border-slate-300 px-3 py-2 text-sm"
               />
               <div className="max-h-56 space-y-2 overflow-auto pr-1">
+                {templatesLoading && (
+                  <div className="rounded border border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">Loading workflows...</div>
+                )}
                 {filteredTemplates.map(template => (
                   <button
                     key={template.id}
@@ -506,6 +513,9 @@ export default function WorkflowGraphBuilder({
                     <span className="mt-2 block truncate text-[10px] uppercase text-slate-500">{template.tags.join(" · ")}</span>
                   </button>
                 ))}
+                {!templatesLoading && filteredTemplates.length === 0 && (
+                  <div className="rounded border border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">No workflows match your search.</div>
+                )}
               </div>
             </CollapsibleSection>
 
