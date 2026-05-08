@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import type { DragEvent, ReactNode } from "react";
 import { CI_ACTIONS, CD_ACTIONS, ActionInput } from "@/lib/action-catalog";
 import { generateWorkflow, WorkflowPlatform, WorkflowStage, WorkflowStageType } from "@/lib/workflow-generator";
 import type { WorkflowTemplatePreset } from "@/lib/workflow-template-loader";
@@ -35,13 +35,16 @@ type PublicAction = {
   label: string;
   description: string;
   stars: number;
+  provider: WorkflowPlatform;
 };
 
-const platformMeta: Record<WorkflowPlatform, { label: string; icon: string; bg: string; border: string }> = {
-  github: { label: "GitHub", icon: "GH", bg: "bg-purple-50", border: "border-purple-200" },
-  gitlab: { label: "GitLab", icon: "GL", bg: "bg-orange-50", border: "border-orange-200" },
-  bitbucket: { label: "Bitbucket", icon: "BB", bg: "bg-sky-50", border: "border-sky-200" }
+const platformMeta: Record<WorkflowPlatform, { label: string; icon: string; bg: string; border: string; active: string }> = {
+  github: { label: "GitHub", icon: "GH", bg: "bg-purple-50", border: "border-purple-200", active: "border-[#6e40c9] bg-[#6e40c9] text-white" },
+  gitlab: { label: "GitLab", icon: "GL", bg: "bg-orange-50", border: "border-orange-200", active: "border-[#fc6d26] bg-[#fc6d26] text-white" },
+  bitbucket: { label: "Bitbucket", icon: "BB", bg: "bg-sky-50", border: "border-sky-200", active: "border-[#0052cc] bg-[#0052cc] text-white" }
 };
+
+const CONNECTION_DISTANCE = 460;
 
 const defaultTriggers = { pushBranches: ["main"], pullRequest: true };
 
@@ -90,10 +93,33 @@ function nearestConnections(stages: GraphStage[], candidate: Pick<GraphStage, "i
   return stages
     .filter(stage => stage.id !== candidate.id)
     .map(stage => ({ id: stage.id, distance: distance(stage, candidate) }))
-    .filter(item => item.distance < 250)
+    .filter(item => item.distance < CONNECTION_DISTANCE)
     .sort((left, right) => left.distance - right.distance)
     .slice(0, 2)
     .map(item => item.id);
+}
+
+function PlatformIcon({ platform }: { platform: WorkflowPlatform }) {
+  if (platform === "gitlab") {
+    return (
+      <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4">
+        <path fill="currentColor" d="M12 21.4 3.4 15.1l2-6.4 2.2 3.9h8.8l2.2-3.9 2 6.4L12 21.4Z" />
+        <path fill="currentColor" opacity=".7" d="M7.6 12.6 12 2.6l4.4 10H7.6Z" />
+      </svg>
+    );
+  }
+  if (platform === "bitbucket") {
+    return (
+      <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4">
+        <path fill="currentColor" d="M4.2 5.2c-.4 0-.7.4-.6.8l2.1 12.5c.1.5.5.9 1 .9h10.2c.4 0 .8-.3.9-.8L20.4 6c.1-.4-.2-.8-.6-.8H4.2Zm5.6 9.5-.6-4.2h5.7l-.7 4.2H9.8Z" />
+      </svg>
+    );
+  }
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4">
+      <path fill="currentColor" d="M12 2.4a9.6 9.6 0 0 0-3 18.7c.5.1.7-.2.7-.5v-1.8c-2.8.6-3.4-1.2-3.4-1.2-.4-1.1-1-1.4-1-1.4-.9-.6.1-.6.1-.6 1 0 1.5 1 1.5 1 .9 1.5 2.3 1.1 2.8.8.1-.6.3-1.1.6-1.3-2.2-.3-4.5-1.1-4.5-4.8 0-1.1.4-1.9 1-2.6-.1-.3-.4-1.3.1-2.6 0 0 .8-.3 2.6 1a9 9 0 0 1 4.8 0c1.8-1.3 2.6-1 2.6-1 .5 1.3.2 2.3.1 2.6.7.7 1 1.5 1 2.6 0 3.7-2.3 4.5-4.5 4.8.4.3.7.9.7 1.8v2.7c0 .3.2.6.7.5A9.6 9.6 0 0 0 12 2.4Z" />
+    </svg>
+  );
 }
 
 function ordered(stages: GraphStage[]) {
@@ -107,6 +133,18 @@ function workflowStages(stages: GraphStage[]) {
     void y;
     return workflowStage;
   });
+}
+
+function stagePlatformWarning(stage: WorkflowStage, platform: WorkflowPlatform) {
+  return stage.type !== "source" && stage.actionProvider && stage.actionProvider !== platform;
+}
+
+function graphPoint(event: DragEvent<HTMLElement>, xOffset = 0, yOffset = 0) {
+  const rect = event.currentTarget.getBoundingClientRect();
+  return {
+    x: Math.max(16, event.clientX - rect.left + event.currentTarget.scrollLeft - xOffset),
+    y: Math.max(16, event.clientY - rect.top + event.currentTarget.scrollTop - yOffset)
+  };
 }
 
 function matchesQuery(query: string, ...values: string[]) {
@@ -136,6 +174,19 @@ function CollapsibleSection({
       </button>
       {open && <div className="border-t border-slate-100 p-3">{children}</div>}
     </section>
+  );
+}
+
+function StageWarning({ stage, platform }: { stage: WorkflowStage; platform: WorkflowPlatform }) {
+  if (!stagePlatformWarning(stage, platform)) return null;
+  const source = platformMeta[stage.actionProvider as WorkflowPlatform]?.label || stage.actionProvider;
+  return (
+    <span
+      className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-full border border-amber-300 bg-amber-50 text-xs font-bold text-amber-700"
+      title={`${source} action in a ${platformMeta[platform].label} workflow. It is kept as a placeholder.`}
+    >
+      !
+    </span>
   );
 }
 
@@ -176,8 +227,10 @@ export default function WorkflowGraphBuilder({
   const [templatesLoading, setTemplatesLoading] = useState(true);
   const [showPublicActions, setShowPublicActions] = useState(false);
   const [publicActions, setPublicActions] = useState<PublicAction[]>([]);
+  const [publicActionsLoading, setPublicActionsLoading] = useState(false);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const idSequence = useRef(0);
+  const graphRef = useRef<HTMLElement | null>(null);
   const [repo, setRepo] = useState("");
   const [repos, setRepos] = useState<RepoRecord[]>([]);
   const [branches, setBranches] = useState<string[]>([]);
@@ -193,18 +246,18 @@ export default function WorkflowGraphBuilder({
     const source = [sourceAction];
     const ci = Object.entries(CI_ACTIONS).map(([key, action]) => ({ key, type: "ci" as const, actionProvider: "github" as WorkflowPlatform, ...action }));
     const cd = Object.entries(CD_ACTIONS).map(([key, action]) => ({ key, type: "cd" as const, actionProvider: "github" as WorkflowPlatform, ...action }));
-    const githubPublicActions = showPublicActions && platform === "github"
+    const marketplaceActions = showPublicActions
       ? publicActions.map(action => ({
           key: `public-${action.actionId}`,
           type: importType,
           actionId: action.actionId,
-          actionProvider: "github" as WorkflowPlatform,
+          actionProvider: action.provider || platform,
           label: action.label,
-          icon: importType === "ci" ? "CI" : "CD",
+          icon: action.provider === "gitlab" ? "GL" : action.provider === "bitbucket" ? "BB" : importType === "ci" ? "CI" : "CD",
           inputs: [{ name: "project_path", description: "Path to the source tree.", default: ".", basic: true }]
         }))
       : [];
-    return [...source, ...ci, ...cd, ...imports, ...githubPublicActions]
+    return [...source, ...ci, ...cd, ...imports, ...marketplaceActions]
       .filter(action => matchesQuery(stageQuery, action.label, action.type, action.key, action.actionId));
   }, [imports, importType, platform, publicActions, showPublicActions, stageQuery]);
 
@@ -361,18 +414,30 @@ export default function WorkflowGraphBuilder({
 
   const searchPublicActions = async () => {
     setError("");
-    setBusy(true);
+    setPublicActionsLoading(true);
     try {
-      const response = await fetch(`/api/actions/public?q=${encodeURIComponent(stageQuery || "github action")}`);
+      const response = await fetch(`/api/actions/public?provider=${encodeURIComponent(platform)}&q=${encodeURIComponent(stageQuery || "action")}`);
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Unable to search public GitHub actions.");
+      if (!response.ok) throw new Error(data.error || "Unable to search public actions.");
       setPublicActions(data.actions || []);
     } catch (err) {
       setError((err as Error).message);
     } finally {
-      setBusy(false);
+      setPublicActionsLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (!showPublicActions) {
+      setPublicActions([]);
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      searchPublicActions();
+    }, 250);
+    return () => window.clearTimeout(timeout);
+  }, [showPublicActions, platform, stageQuery]);
 
   const addImportedAction = async () => {
     const actionId = importActionId.trim();
@@ -472,10 +537,11 @@ export default function WorkflowGraphBuilder({
                   setRepos([]);
                   setBranches([]);
                 }}
-                className={`h-9 rounded border px-3 text-sm font-semibold ${platform === item ? "border-slate-900 bg-slate-900 text-white" : "border-slate-300 bg-white text-slate-700"}`}
+                className={`flex h-9 items-center gap-2 rounded border px-3 text-sm font-semibold ${platform === item ? platformMeta[item].active : "border-slate-300 bg-white text-slate-700"}`}
                 title={platformMeta[item].label}
               >
-                {platformMeta[item].icon}
+                <PlatformIcon platform={item} />
+                <span>{platformMeta[item].icon}</span>
               </button>
             ))}
             <ProfileMenu session={session || null} platform={platform} authenticatedProviders={authenticatedProviders} onSignIn={onSignIn} onLogout={onLogout} />
@@ -526,13 +592,13 @@ export default function WorkflowGraphBuilder({
                 placeholder="Search stages and actions"
                 className="mb-3 w-full rounded border border-slate-300 px-3 py-2 text-sm"
               />
-              {platform === "github" && (
-                <label className="mb-3 flex items-center gap-2 text-xs text-slate-700">
-                  <input type="checkbox" checked={showPublicActions} onChange={event => setShowPublicActions(event.target.checked)} />
-                  <span>Show public GitHub actions</span>
-                  <button type="button" onClick={searchPublicActions} className="ml-auto rounded border border-slate-300 px-2 py-1 font-semibold">Search</button>
-                </label>
-              )}
+              <label className="mb-3 flex items-center gap-2 text-xs text-slate-700">
+                <input type="checkbox" checked={showPublicActions} onChange={event => setShowPublicActions(event.target.checked)} />
+                <span>Show public {platformMeta[platform].label} actions</span>
+                <button type="button" onClick={searchPublicActions} disabled={publicActionsLoading} className="ml-auto rounded border border-slate-300 px-2 py-1 font-semibold disabled:opacity-50">
+                  {publicActionsLoading ? "Loading" : "Reload"}
+                </button>
+              </label>
               <div className="grid grid-cols-3 gap-2">
                 {toolbarActions.map(action => (
                   <button
@@ -605,21 +671,22 @@ export default function WorkflowGraphBuilder({
         </aside>
 
         <section
+          ref={graphRef}
           className="relative min-h-[560px] overflow-auto p-4"
           onDragOver={event => event.preventDefault()}
           onDrop={event => {
             event.preventDefault();
-            const rect = event.currentTarget.getBoundingClientRect();
             const moveId = event.dataTransfer.getData("application/pipery-move");
             if (moveId) {
-              moveStage(moveId, Math.max(16, event.clientX - rect.left - 72), Math.max(16, event.clientY - rect.top - 42));
+              const point = graphPoint(event, 72, 42);
+              moveStage(moveId, point.x, point.y);
               return;
             }
             const payload = event.dataTransfer.getData("application/pipery-stage");
             if (!payload) return;
             const { type, key } = JSON.parse(payload);
             const action = toolbarActions.find(item => item.type === type && item.key === key);
-            addStage(type, key, { x: event.clientX - rect.left, y: event.clientY - rect.top }, action);
+            addStage(type, key, graphPoint(event), action);
           }}
         >
           <div className="absolute inset-0 bg-[linear-gradient(rgba(15,23,42,.06)_1px,transparent_1px),linear-gradient(90deg,rgba(15,23,42,.06)_1px,transparent_1px)] bg-[size:28px_28px]" />
@@ -654,8 +721,9 @@ export default function WorkflowGraphBuilder({
                   <div className="absolute left-1 top-9 h-3 w-3 rounded-full border-2 border-slate-500 bg-white" />
                   <button
                     onClick={() => setSelectedId(stage.id)}
-                    className={`w-full rounded border bg-white p-3 text-left shadow-sm ${selectedId === stage.id ? "border-slate-950 ring-2 ring-slate-950/10" : "border-slate-300"}`}
+                    className={`relative w-full rounded border bg-white p-3 text-left shadow-sm ${selectedId === stage.id ? "border-slate-950 ring-2 ring-slate-950/10" : "border-slate-300"}`}
                   >
+                    <StageWarning stage={stage} platform={platform} />
                     <span className="block text-center text-2xl">{stage.icon}</span>
                     <span className="block truncate text-center text-sm font-semibold">{stage.label}</span>
                     <span className="block truncate text-center text-xs text-slate-500">{stage.sourcePath || "."}</span>
@@ -676,17 +744,11 @@ export default function WorkflowGraphBuilder({
                 key={stage.id}
                 draggable
                 onDragStart={event => event.dataTransfer.setData("application/pipery-move", stage.id)}
-                onDragEnd={event => {
-                  if (event.clientX === 0 && event.clientY === 0) return;
-                  const rect = event.currentTarget.parentElement?.parentElement?.getBoundingClientRect();
-                  if (!rect) return;
-                  if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) return;
-                  moveStage(stage.id, Math.max(16, event.clientX - rect.left - 72), Math.max(16, event.clientY - rect.top - 42));
-                }}
                 onClick={() => setSelectedId(stage.id)}
                 className={`relative w-full rounded border bg-white p-3 text-left shadow-sm transition lg:absolute lg:w-36 ${selectedId === stage.id ? "border-slate-950 ring-2 ring-slate-950/10" : "border-slate-300"}`}
                 style={{ left: stage.x, top: stage.y }}
               >
+                <StageWarning stage={stage} platform={platform} />
                 <span className="block text-center text-2xl">{stage.icon}</span>
                 <span className="block truncate text-center text-sm font-semibold">{stage.label}</span>
                 <span className="block truncate text-center text-xs text-slate-500">{stage.sourcePath || "."}</span>
