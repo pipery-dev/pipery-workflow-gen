@@ -102,7 +102,7 @@ export default function StepPreview({
         <p className="text-sm text-blue-900">
           {isAuthenticated
             ? `Review the generated ${labels.workflow} workflow below. Click "${labels.action}" to commit it to your repository.`
-            : `Copy or download the generated ${labels.file} workflow. You can add it manually to your repository${platform === "bitbucket" ? "." : `, or sign in to create a ${platform === "gitlab" ? "merge request" : "PR"} automatically.`}`}
+            : `Copy or download the generated ${labels.file} workflow. You can add it manually to your repository, or sign in to create a ${platform === "gitlab" ? "merge request" : "PR"} automatically.`}
         </p>
       </div>
 

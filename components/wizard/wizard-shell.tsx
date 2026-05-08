@@ -13,7 +13,7 @@ import StepRepo from "./step-repo";
 import StepPreview from "./step-preview";
 import YamlPreview from "../yaml-preview";
 
-const supportsRepoAutomation = (platform: WorkflowPlatform) => platform === "github" || platform === "gitlab";
+const supportsRepoAutomation = (platform: WorkflowPlatform) => ["github", "gitlab", "bitbucket"].includes(platform);
 
 export default function WizardShell() {
   const { data: session } = usePiperySession();

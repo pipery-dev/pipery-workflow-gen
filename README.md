@@ -6,9 +6,9 @@ The wizard starts by asking whether the user wants a build plan for GitHub Actio
 
 - GitHub Actions generates `.github/workflows/<workflow>.yml` and can open a GitHub pull request.
 - GitLab CI generates `.gitlab-ci.yml` and can open a GitLab merge request.
-- Bitbucket Pipelines generates `bitbucket-pipelines.yml` with Bitbucket Cloud shared pipeline imports.
+- Bitbucket Pipelines generates `bitbucket-pipelines.yml` and can open a Bitbucket Cloud pull request.
 
-Repository automation uses the OAuth provider selected during sign-in, so GitHub users see GitHub repositories and GitLab users see GitLab projects. Bitbucket Cloud build plan generation currently supports preview and download.
+Repository automation uses the OAuth provider selected during sign-in, so GitHub users see GitHub repositories, GitLab users see GitLab projects, and Bitbucket users see Bitbucket Cloud repositories.
 
 GitHub sign-in must grant the `workflow` OAuth scope so the app can create pull requests that add files under `.github/workflows`.
 Sign-in returns to `/auth/callback?provider=<provider>&next=/wizard` before continuing, so the app can show which provider completed login.

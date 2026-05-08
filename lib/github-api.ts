@@ -1,7 +1,7 @@
 import { Octokit } from "@octokit/rest";
 
 export interface Repo {
-  id: number;
+  id: number | string;
   name: string;
   fullName: string;
   owner: string;

@@ -22,7 +22,7 @@ export default function StepPlatform({ platform, onPlatformChange }: StepPlatfor
     {
       key: "bitbucket" as const,
       title: "Bitbucket Cloud",
-      description: "Generate bitbucket-pipelines.yml using Bitbucket shared pipeline imports."
+      description: "Generate bitbucket-pipelines.yml and create a Bitbucket pull request."
     }
   ];
 

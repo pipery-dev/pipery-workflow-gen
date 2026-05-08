@@ -8,11 +8,12 @@ export async function getGitHubAccessToken(): Promise<string> {
   return token;
 }
 
-export async function getProviderAccessToken(provider: Extract<PiperyProvider, "github" | "gitlab">): Promise<string> {
+export async function getProviderAccessToken(provider: PiperyProvider): Promise<string> {
   const session = await getProviderSession(provider);
   const token = session?.accounts?.[provider]?.accessToken || (session?.provider === provider ? session?.accessToken : undefined);
   if (!token) {
-    throw new Error(`No ${provider === "gitlab" ? "GitLab" : "GitHub"} access token. Sign in again.`);
+    const label = provider === "gitlab" ? "GitLab" : provider === "bitbucket" ? "Bitbucket" : "GitHub";
+    throw new Error(`No ${label} access token. Sign in again.`);
   }
   return token;
 }

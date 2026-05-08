@@ -39,12 +39,14 @@ export default function StepRepo({
 
   useEffect(() => {
     const hasPlatformToken = !!(
-      platform !== "bitbucket" &&
       session?.accounts?.[platform]?.authenticated
     );
     if (!hasPlatformToken) return;
 
-    fetch(platform === "gitlab" ? "/api/gitlab/projects" : "/api/github/repos")
+    const reposUrl =
+      platform === "gitlab" ? "/api/gitlab/projects" : platform === "bitbucket" ? "/api/bitbucket/repos" : "/api/github/repos";
+
+    fetch(reposUrl)
       .then(r => r.json())
       .then(({ repos, error }) => {
         if (repos) onReposChange(repos);
@@ -57,9 +59,13 @@ export default function StepRepo({
   useEffect(() => {
     if (!selectedRepo) return;
 
-    const url = platform === "gitlab"
-      ? `/api/gitlab/branches?projectId=${encodeURIComponent(selectedRepo)}`
-      : `/api/github/${selectedRepo.split("/")[0]}/${selectedRepo.split("/")[1]}/branches`;
+    const [owner, repo] = selectedRepo.split("/");
+    const url =
+      platform === "gitlab"
+        ? `/api/gitlab/branches?projectId=${encodeURIComponent(selectedRepo)}`
+        : platform === "bitbucket"
+          ? `/api/bitbucket/branches?workspace=${encodeURIComponent(owner)}&repo=${encodeURIComponent(repo)}`
+          : `/api/github/${owner}/${repo}/branches`;
     fetch(url)
       .then(r => r.json())
       .then(({ branches, error }) => {
