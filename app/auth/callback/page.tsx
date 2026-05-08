@@ -1,11 +1,16 @@
 import Link from "next/link";
-import { getProviderSession } from "@/lib/provider-session";
+import AutoContinue from "./auto-continue";
+import { getPiperySession, getProviderSession } from "@/lib/provider-session";
+import type { PiperyProvider } from "@/lib/auth";
 
 const providerLabels: Record<string, string> = {
   github: "GitHub",
   gitlab: "GitLab",
-  bitbucket: "Bitbucket Cloud"
+  bitbucket: "Bitbucket Cloud",
+  "*": "Pipery"
 };
+
+const providers = ["github", "gitlab", "bitbucket"] as const;
 
 function safeNextPath(value: string | undefined) {
   if (!value || !value.startsWith("/") || value.startsWith("//")) {
@@ -14,21 +19,33 @@ function safeNextPath(value: string | undefined) {
   return value;
 }
 
+function providerFromSearch(value: string | undefined) {
+  if (value === "*") return value;
+  return providers.includes(value as PiperyProvider) ? (value as PiperyProvider) : "github";
+}
+
 export default async function AuthCallbackPage(props: {
   searchParams: Promise<{ provider?: string; next?: string }>;
 }) {
   const searchParams = await props.searchParams;
-  const provider = searchParams.provider || "github";
-  const session = await getProviderSession(provider as "github" | "gitlab" | "bitbucket");
+  const provider = providerFromSearch(searchParams.provider);
   const providerLabel = providerLabels[provider] || "Pipery";
   const nextPath = safeNextPath(searchParams.next);
-  const hasProviderSession = !!(
-    session?.accounts?.[provider as "github" | "gitlab" | "bitbucket"]?.accessToken ||
-    (session?.provider === provider && session?.accessToken)
-  );
+  let hasProviderSession = false;
+
+  if (provider === "*") {
+    hasProviderSession = !!(await getPiperySession());
+  } else {
+    const session = await getProviderSession(provider);
+    hasProviderSession = !!(
+      session?.accounts?.[provider]?.accessToken ||
+      (session?.provider === provider && session?.accessToken)
+    );
+  }
 
   return (
     <main className="min-h-screen bg-slate-50 flex items-center justify-center px-6">
+      <AutoContinue href={nextPath} />
       <div className="w-full max-w-md rounded-lg bg-white p-8 shadow-lg text-center">
         <p className="text-sm font-semibold uppercase tracking-wide text-blue-700">
           {hasProviderSession ? "Signed in" : "Checking sign-in"}
@@ -38,8 +55,8 @@ export default async function AuthCallbackPage(props: {
         </h1>
         <p className="mt-3 text-sm text-slate-600">
           {hasProviderSession
-            ? "Continue to the workflow wizard to create or update your pipeline."
-            : "The login session was not visible yet. Continue to the wizard and sign in again if needed."}
+            ? "Continuing to the workflow wizard in a moment."
+            : "The login session was not visible yet. Continuing to the wizard; sign in again there if needed."}
         </p>
         <Link
           href={nextPath}
