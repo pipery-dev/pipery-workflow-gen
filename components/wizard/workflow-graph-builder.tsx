@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import type { DragEvent, ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { DragEvent, PointerEvent, ReactNode, WheelEvent } from "react";
 import { CI_ACTIONS, CD_ACTIONS, ActionInput } from "@/lib/action-catalog";
 import { generateWorkflow, WorkflowPlatform, WorkflowStage, WorkflowStageType } from "@/lib/workflow-generator";
 import type { WorkflowTemplatePreset } from "@/lib/workflow-template-loader";
@@ -30,6 +30,17 @@ type RepoRecord = {
   fullName: string;
 };
 
+type BoardView = {
+  x: number;
+  y: number;
+  scale: number;
+};
+
+type LinkSelection = {
+  from: string;
+  to: string;
+} | null;
+
 type PublicAction = {
   actionId: string;
   label: string;
@@ -45,6 +56,12 @@ const platformMeta: Record<WorkflowPlatform, { label: string; icon: string; bg: 
 };
 
 const CONNECTION_DISTANCE = 460;
+const BOARD_WIDTH = 5000;
+const BOARD_HEIGHT = 3200;
+const STAGE_WIDTH = 144;
+const STAGE_HEIGHT = 84;
+const MIN_ZOOM = 0.45;
+const MAX_ZOOM = 1.8;
 
 const defaultTriggers = { pushBranches: ["main"], pullRequest: true };
 
@@ -136,21 +153,48 @@ function workflowStages(stages: GraphStage[]) {
 }
 
 function stagePlatformWarning(stage: WorkflowStage, platform: WorkflowPlatform) {
-  return stage.type !== "source" && stage.actionProvider && stage.actionProvider !== platform;
+  const actionId = stage.actionId.split("@")[0];
+  const piperyAction = actionId.startsWith("pipery-dev/pipery-");
+  return stage.type !== "source" && !piperyAction && stage.actionProvider && stage.actionProvider !== platform;
 }
 
-function graphPoint(event: DragEvent<HTMLElement>, xOffset = 0, yOffset = 0) {
+function clampZoom(scale: number) {
+  return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, scale));
+}
+
+function graphPoint(event: DragEvent<HTMLElement>, view: BoardView, xOffset = 0, yOffset = 0) {
   const rect = event.currentTarget.getBoundingClientRect();
   return {
-    x: Math.max(16, event.clientX - rect.left + event.currentTarget.scrollLeft - xOffset),
-    y: Math.max(16, event.clientY - rect.top + event.currentTarget.scrollTop - yOffset)
+    x: Math.max(16, (event.clientX - rect.left - view.x) / view.scale - xOffset),
+    y: Math.max(16, (event.clientY - rect.top - view.y) / view.scale - yOffset)
   };
+}
+
+function linkPath(from: GraphStage, to: GraphStage) {
+  const startX = from.x + STAGE_WIDTH;
+  const startY = from.y + STAGE_HEIGHT / 2;
+  const endX = to.x;
+  const endY = to.y + STAGE_HEIGHT / 2;
+  const mid = Math.max(60, Math.abs(endX - startX) / 2);
+  return `M ${startX} ${startY} C ${startX + mid} ${startY}, ${endX - mid} ${endY}, ${endX} ${endY}`;
 }
 
 function matchesQuery(query: string, ...values: string[]) {
   const normalized = query.trim().toLowerCase();
   if (!normalized) return true;
   return values.some(value => value.toLowerCase().includes(normalized));
+}
+
+function wouldCreateCycle(stages: GraphStage[], stageId: string, dependencyId: string) {
+  const byId = new Map(stages.map(stage => [stage.id, stage]));
+  const seen = new Set<string>();
+  const visit = (id: string): boolean => {
+    if (id === stageId) return true;
+    if (seen.has(id)) return false;
+    seen.add(id);
+    return (byId.get(id)?.dependsOn || []).some(visit);
+  };
+  return visit(dependencyId);
 }
 
 function CollapsibleSection({
@@ -218,6 +262,7 @@ export default function WorkflowGraphBuilder({
   const [workflowName, setWorkflowName] = useState("pipery-workflow");
   const [stages, setStages] = useState<GraphStage[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedLink, setSelectedLink] = useState<LinkSelection>(null);
   const [imports, setImports] = useState<ImportedAction[]>([]);
   const [importType, setImportType] = useState<WorkflowStageType>("ci");
   const [importActionId, setImportActionId] = useState("");
@@ -229,6 +274,9 @@ export default function WorkflowGraphBuilder({
   const [publicActions, setPublicActions] = useState<PublicAction[]>([]);
   const [publicActionsLoading, setPublicActionsLoading] = useState(false);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const [boardView, setBoardView] = useState<BoardView>({ x: 80, y: 60, scale: 1 });
+  const [panning, setPanning] = useState<{ pointerId: number; x: number; y: number; viewX: number; viewY: number } | null>(null);
+  const [dependencyToAdd, setDependencyToAdd] = useState("");
   const idSequence = useRef(0);
   const graphRef = useRef<HTMLElement | null>(null);
   const [repo, setRepo] = useState("");
@@ -241,6 +289,12 @@ export default function WorkflowGraphBuilder({
   const authenticated = !!session?.accounts?.[platform]?.authenticated;
   const authenticatedProviders = session?.accounts ? (Object.keys(session.accounts) as PiperyProvider[]) : [];
   const selected = stages.find(stage => stage.id === selectedId) || null;
+  const selectedLinkStages = selectedLink
+    ? { from: stages.find(stage => stage.id === selectedLink.from), to: stages.find(stage => stage.id === selectedLink.to) }
+    : null;
+  const linkableStages = selected
+    ? stages.filter(stage => stage.id !== selected.id && !selected.dependsOn.includes(stage.id) && !wouldCreateCycle(stages, selected.id, stage.id))
+    : [];
 
   const toolbarActions = useMemo<ToolbarAction[]>(() => {
     const source = [sourceAction];
@@ -265,7 +319,7 @@ export default function WorkflowGraphBuilder({
     workflowTemplatePresets.filter(template => (
       matchesQuery(workflowQuery, template.name, template.description, template.tags.join(" "))
     ))
-  ), [workflowQuery]);
+  ), [workflowQuery, workflowTemplatePresets]);
 
   const sectionOpen = (id: string) => collapsed[id] !== true;
   const toggleSection = (id: string) => setCollapsed(current => ({ ...current, [id]: !current[id] }));
@@ -331,6 +385,7 @@ export default function WorkflowGraphBuilder({
     next.dependsOn = nearestConnections(stages, next);
     setStages(current => [...current, next]);
     setSelectedId(next.id);
+    setSelectedLink(null);
   };
 
   const applyTemplate = (template: WorkflowTemplatePreset) => {
@@ -362,6 +417,7 @@ export default function WorkflowGraphBuilder({
     setWorkflowName(template.workflowName);
     setStages(nextStages);
     setSelectedId(nextStages[0]?.id || null);
+    setSelectedLink(null);
   };
 
   const updateStage = (id: string, patch: Partial<GraphStage>) => {
@@ -371,9 +427,72 @@ export default function WorkflowGraphBuilder({
   const moveStage = (id: string, x: number, y: number) => {
     setStages(current => current.map(stage => {
       if (stage.id !== id) return stage;
-      const moved = { ...stage, x, y };
-      return { ...moved, dependsOn: nearestConnections(current, moved) };
+      return { ...stage, x, y };
     }));
+  };
+
+  const addDependency = (stageId: string, dependencyId: string) => {
+    if (!dependencyId || dependencyId === stageId) return;
+    setStages(current => current.map(stage => {
+      if (stage.id !== stageId || stage.dependsOn.includes(dependencyId)) return stage;
+      if (wouldCreateCycle(current, stageId, dependencyId)) return stage;
+      return { ...stage, dependsOn: [...stage.dependsOn, dependencyId] };
+    }));
+    setDependencyToAdd("");
+    setSelectedLink({ from: dependencyId, to: stageId });
+  };
+
+  const removeDependency = (stageId: string, dependencyId: string) => {
+    setStages(current => current.map(stage => (
+      stage.id === stageId ? { ...stage, dependsOn: stage.dependsOn.filter(dep => dep !== dependencyId) } : stage
+    )));
+    if (selectedLink?.from === dependencyId && selectedLink.to === stageId) setSelectedLink(null);
+  };
+
+  const setZoom = (nextScale: number) => {
+    setBoardView(current => ({ ...current, scale: clampZoom(nextScale) }));
+  };
+
+  const resetBoardView = () => {
+    setBoardView({ x: 80, y: 60, scale: 1 });
+  };
+
+  const handleBoardWheel = (event: WheelEvent<HTMLElement>) => {
+    event.preventDefault();
+    const rect = event.currentTarget.getBoundingClientRect();
+    const nextScale = clampZoom(boardView.scale * (event.deltaY > 0 ? 0.92 : 1.08));
+    const pointerX = event.clientX - rect.left;
+    const pointerY = event.clientY - rect.top;
+    const worldX = (pointerX - boardView.x) / boardView.scale;
+    const worldY = (pointerY - boardView.y) / boardView.scale;
+    setBoardView({
+      scale: nextScale,
+      x: pointerX - worldX * nextScale,
+      y: pointerY - worldY * nextScale
+    });
+  };
+
+  const handleBoardPointerDown = (event: PointerEvent<HTMLElement>) => {
+    if (event.button !== 0) return;
+    const target = event.target as HTMLElement;
+    if (target.closest("button,input,select,textarea,a,label")) return;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setPanning({ pointerId: event.pointerId, x: event.clientX, y: event.clientY, viewX: boardView.x, viewY: boardView.y });
+  };
+
+  const handleBoardPointerMove = (event: PointerEvent<HTMLElement>) => {
+    if (!panning || panning.pointerId !== event.pointerId) return;
+    setBoardView(current => ({
+      ...current,
+      x: panning.viewX + event.clientX - panning.x,
+      y: panning.viewY + event.clientY - panning.y
+    }));
+  };
+
+  const handleBoardPointerUp = (event: PointerEvent<HTMLElement>) => {
+    if (!panning || panning.pointerId !== event.pointerId) return;
+    event.currentTarget.releasePointerCapture(event.pointerId);
+    setPanning(null);
   };
 
   const removeStage = (id: string) => {
@@ -382,6 +501,7 @@ export default function WorkflowGraphBuilder({
       dependsOn: stage.dependsOn.filter(dep => dep !== id)
     })));
     if (selectedId === id) setSelectedId(null);
+    if (selectedLink?.from === id || selectedLink?.to === id) setSelectedLink(null);
   };
 
   const loadRepos = async () => {
@@ -412,7 +532,7 @@ export default function WorkflowGraphBuilder({
     }
   };
 
-  const searchPublicActions = async () => {
+  const searchPublicActions = useCallback(async () => {
     setError("");
     setPublicActionsLoading(true);
     try {
@@ -425,19 +545,16 @@ export default function WorkflowGraphBuilder({
     } finally {
       setPublicActionsLoading(false);
     }
-  };
+  }, [platform, stageQuery]);
 
   useEffect(() => {
-    if (!showPublicActions) {
-      setPublicActions([]);
-      return;
-    }
+    if (!showPublicActions) return;
 
     const timeout = window.setTimeout(() => {
       searchPublicActions();
     }, 250);
     return () => window.clearTimeout(timeout);
-  }, [showPublicActions, platform, stageQuery]);
+  }, [searchPublicActions, showPublicActions]);
 
   const addImportedAction = async () => {
     const actionId = importActionId.trim();
@@ -554,7 +671,7 @@ export default function WorkflowGraphBuilder({
           <div className="space-y-3">
             <CollapsibleSection id="workflow" title="Workflow" open={sectionOpen("workflow")} onToggle={toggleSection}>
               <label className="mb-1 block text-xs font-semibold uppercase text-slate-500">Name</label>
-              <input value={workflowName} onChange={event => setWorkflowName(event.target.value)} className="w-full rounded border border-slate-300 px-3 py-2 text-sm" />
+              <input value={workflowName} onChange={event => setWorkflowName(event.target.value)} className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 placeholder:text-slate-400" />
             </CollapsibleSection>
 
             <CollapsibleSection id="templates" title="Workflows" open={sectionOpen("templates")} onToggle={toggleSection}>
@@ -562,7 +679,7 @@ export default function WorkflowGraphBuilder({
                 value={workflowQuery}
                 onChange={event => setWorkflowQuery(event.target.value)}
                 placeholder="Search language or deploy stack"
-                className="mb-3 w-full rounded border border-slate-300 px-3 py-2 text-sm"
+                className="mb-3 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 placeholder:text-slate-400"
               />
               <div className="max-h-56 space-y-2 overflow-auto pr-1">
                 {templatesLoading && (
@@ -590,7 +707,7 @@ export default function WorkflowGraphBuilder({
                 value={stageQuery}
                 onChange={event => setStageQuery(event.target.value)}
                 placeholder="Search stages and actions"
-                className="mb-3 w-full rounded border border-slate-300 px-3 py-2 text-sm"
+                className="mb-3 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 placeholder:text-slate-400"
               />
               <label className="mb-3 flex items-center gap-2 text-xs text-slate-700">
                 <input type="checkbox" checked={showPublicActions} onChange={event => setShowPublicActions(event.target.checked)} />
@@ -633,7 +750,7 @@ export default function WorkflowGraphBuilder({
                 value={importActionId}
                 onChange={event => setImportActionId(event.target.value)}
                 placeholder="owner/repo or group/project"
-                className="mb-2 w-full rounded border border-slate-300 px-3 py-2 text-xs"
+                className="mb-2 w-full rounded border border-slate-300 bg-white px-3 py-2 text-xs text-slate-950 placeholder:text-slate-400"
               />
               <button onClick={addImportedAction} className="w-full rounded bg-slate-800 px-3 py-2 text-xs font-semibold text-white">
                 Add to Toolbar
@@ -651,7 +768,7 @@ export default function WorkflowGraphBuilder({
                   <button onClick={loadRepos} className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm font-semibold">
                     Load repositories
                   </button>
-                  <select value={repo} onChange={event => loadBranches(event.target.value)} className="w-full rounded border border-slate-300 px-3 py-2 text-sm">
+                  <select value={repo} onChange={event => loadBranches(event.target.value)} className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950">
                     <option value="">Select repository</option>
                     {repos.map(item => (
                       <option key={item.id} value={platform === "gitlab" ? String(item.id) : item.fullName}>{item.fullName}</option>
@@ -664,7 +781,7 @@ export default function WorkflowGraphBuilder({
             <CollapsibleSection id="triggers" title="Triggers" open={sectionOpen("triggers")} onToggle={toggleSection}>
               <div className="space-y-2">
                 <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={triggers.pullRequest} onChange={event => setTriggers({ ...triggers, pullRequest: event.target.checked })} /> Pull request</label>
-                <input value={triggers.pushBranches.join(", ")} onChange={event => setTriggers({ ...triggers, pushBranches: event.target.value.split(",").map(v => v.trim()).filter(Boolean) })} className="w-full rounded border border-slate-300 px-3 py-2 text-sm" placeholder={branches[0] || "main"} />
+                <input value={triggers.pushBranches.join(", ")} onChange={event => setTriggers({ ...triggers, pushBranches: event.target.value.split(",").map(v => v.trim()).filter(Boolean) })} className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 placeholder:text-slate-400" placeholder={branches[0] || "main"} />
               </div>
             </CollapsibleSection>
           </div>
@@ -672,13 +789,18 @@ export default function WorkflowGraphBuilder({
 
         <section
           ref={graphRef}
-          className="relative min-h-[560px] overflow-auto p-4"
+          className={`relative min-h-[560px] overflow-hidden p-4 ${panning ? "cursor-grabbing" : "cursor-grab"}`}
           onDragOver={event => event.preventDefault()}
+          onWheel={handleBoardWheel}
+          onPointerDown={handleBoardPointerDown}
+          onPointerMove={handleBoardPointerMove}
+          onPointerUp={handleBoardPointerUp}
+          onPointerCancel={handleBoardPointerUp}
           onDrop={event => {
             event.preventDefault();
             const moveId = event.dataTransfer.getData("application/pipery-move");
             if (moveId) {
-              const point = graphPoint(event, 72, 42);
+              const point = graphPoint(event, boardView, STAGE_WIDTH / 2, STAGE_HEIGHT / 2);
               moveStage(moveId, point.x, point.y);
               return;
             }
@@ -686,28 +808,86 @@ export default function WorkflowGraphBuilder({
             if (!payload) return;
             const { type, key } = JSON.parse(payload);
             const action = toolbarActions.find(item => item.type === type && item.key === key);
-            addStage(type, key, graphPoint(event), action);
+            addStage(type, key, graphPoint(event, boardView), action);
           }}
         >
-          <div className="absolute inset-0 bg-[linear-gradient(rgba(15,23,42,.06)_1px,transparent_1px),linear-gradient(90deg,rgba(15,23,42,.06)_1px,transparent_1px)] bg-[size:28px_28px]" />
-          <svg className="pointer-events-none absolute inset-0 hidden h-full min-h-[560px] w-full lg:block">
-            {stages.flatMap(stage => stage.dependsOn.map(dep => {
-              const from = stages.find(item => item.id === dep);
-              if (!from) return null;
-              return (
-                <line
-                  key={`${dep}-${stage.id}`}
-                  x1={from.x + 72}
-                  y1={from.y + 42}
-                  x2={stage.x + 72}
-                  y2={stage.y + 42}
-                  stroke="#334155"
-                  strokeWidth="2"
-                  strokeDasharray={stage.type === "cd" ? "6 4" : undefined}
-                />
-              );
-            }))}
-          </svg>
+          <div className="pointer-events-none absolute left-4 top-4 z-20 hidden items-center gap-2 rounded border border-slate-200 bg-white/90 p-2 shadow-sm lg:flex">
+            <button type="button" onClick={() => setZoom(boardView.scale - 0.1)} className="pointer-events-auto h-8 w-8 rounded border border-slate-300 bg-white text-sm font-bold text-slate-800">-</button>
+            <span className="min-w-12 text-center text-xs font-semibold text-slate-700">{Math.round(boardView.scale * 100)}%</span>
+            <button type="button" onClick={() => setZoom(boardView.scale + 0.1)} className="pointer-events-auto h-8 w-8 rounded border border-slate-300 bg-white text-sm font-bold text-slate-800">+</button>
+            <button type="button" onClick={resetBoardView} className="pointer-events-auto rounded border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-slate-700">Reset</button>
+          </div>
+          <div
+            className="absolute left-0 top-0 hidden origin-top-left lg:block"
+            style={{ width: BOARD_WIDTH, height: BOARD_HEIGHT, transform: `translate(${boardView.x}px, ${boardView.y}px) scale(${boardView.scale})` }}
+          >
+            <div className="absolute inset-0 bg-[linear-gradient(rgba(15,23,42,.06)_1px,transparent_1px),linear-gradient(90deg,rgba(15,23,42,.06)_1px,transparent_1px)] bg-[size:28px_28px]" />
+            <svg className="absolute inset-0 hidden h-full w-full overflow-visible lg:block">
+              <defs>
+                <marker id="dependency-arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+                  <path d="M0,0 L0,6 L9,3 z" fill="#334155" />
+                </marker>
+              </defs>
+              {stages.flatMap(stage => stage.dependsOn.map(dep => {
+                const from = stages.find(item => item.id === dep);
+                if (!from) return null;
+                const selectedDependency = selectedLink?.from === dep && selectedLink.to === stage.id;
+                const midX = (from.x + STAGE_WIDTH + stage.x) / 2;
+                const midY = (from.y + stage.y) / 2 + STAGE_HEIGHT / 2;
+                return (
+                  <g key={`${dep}-${stage.id}`}>
+                    <path
+                      d={linkPath(from, stage)}
+                      fill="none"
+                      stroke={selectedDependency ? "#0f172a" : "#334155"}
+                      strokeWidth={selectedDependency ? 3 : 2}
+                      markerEnd="url(#dependency-arrow)"
+                      strokeDasharray={stage.type === "cd" ? "6 4" : undefined}
+                    />
+                    <foreignObject x={midX - 54} y={midY - 13} width="108" height="26">
+                      <button
+                        type="button"
+                        onClick={event => {
+                          event.stopPropagation();
+                          setSelectedLink({ from: dep, to: stage.id });
+                          setSelectedId(stage.id);
+                        }}
+                        className={`h-6 w-full rounded-full border px-2 text-[10px] font-semibold shadow-sm ${selectedDependency ? "border-slate-900 bg-slate-900 text-white" : "border-slate-300 bg-white text-slate-700"}`}
+                      >
+                        needs {from.icon}
+                      </button>
+                    </foreignObject>
+                  </g>
+                );
+              }))}
+            </svg>
+            <div className="relative hidden min-h-[520px] lg:block">
+            {stages.length === 0 && (
+              <div className="mx-auto mt-24 max-w-sm rounded border border-dashed border-slate-400 bg-white/80 p-6 text-center text-sm text-slate-600">
+                Drop CI/CD stages here. Nearby stages connect automatically; move a stage to reshape the graph.
+              </div>
+            )}
+            {stages.map(stage => (
+              <button
+                key={stage.id}
+                draggable
+                onDragStart={event => event.dataTransfer.setData("application/pipery-move", stage.id)}
+                onClick={() => {
+                  setSelectedId(stage.id);
+                  setSelectedLink(null);
+                }}
+                className={`relative w-full rounded border bg-white p-3 text-left shadow-sm transition lg:absolute lg:w-36 ${selectedId === stage.id ? "border-slate-950 ring-2 ring-slate-950/10" : "border-slate-300"}`}
+                style={{ left: stage.x, top: stage.y }}
+              >
+                <StageWarning stage={stage} platform={platform} />
+                <span className="block text-center text-2xl">{stage.icon}</span>
+                <span className="block truncate text-center text-sm font-semibold text-slate-950">{stage.label}</span>
+                <span className="block truncate text-center text-xs text-slate-500">{stage.sourcePath || "."}</span>
+                {stage.dependsOn.length > 0 && <span className="mt-2 block truncate rounded bg-slate-100 px-2 py-1 text-[10px] text-slate-600">from {stage.dependsOn.length} stage{stage.dependsOn.length > 1 ? "s" : ""}</span>}
+              </button>
+            ))}
+            </div>
+          </div>
           <div className="relative min-h-[520px] lg:hidden">
             {stages.length === 0 && (
               <div className="mx-auto mt-24 max-w-sm rounded border border-dashed border-slate-400 bg-white/80 p-6 text-center text-sm text-slate-600">
@@ -720,41 +900,21 @@ export default function WorkflowGraphBuilder({
                   {index > 0 && <div className="absolute left-[13px] -top-4 h-4 w-px bg-slate-400" />}
                   <div className="absolute left-1 top-9 h-3 w-3 rounded-full border-2 border-slate-500 bg-white" />
                   <button
-                    onClick={() => setSelectedId(stage.id)}
+                    onClick={() => {
+                      setSelectedId(stage.id);
+                      setSelectedLink(null);
+                    }}
                     className={`relative w-full rounded border bg-white p-3 text-left shadow-sm ${selectedId === stage.id ? "border-slate-950 ring-2 ring-slate-950/10" : "border-slate-300"}`}
                   >
                     <StageWarning stage={stage} platform={platform} />
                     <span className="block text-center text-2xl">{stage.icon}</span>
-                    <span className="block truncate text-center text-sm font-semibold">{stage.label}</span>
+                    <span className="block truncate text-center text-sm font-semibold text-slate-950">{stage.label}</span>
                     <span className="block truncate text-center text-xs text-slate-500">{stage.sourcePath || "."}</span>
                     {stage.dependsOn.length > 0 && <span className="mt-2 block truncate rounded bg-slate-100 px-2 py-1 text-[10px] text-slate-600">from {stage.dependsOn.length} stage{stage.dependsOn.length > 1 ? "s" : ""}</span>}
                   </button>
                 </div>
               ))}
             </div>
-          </div>
-          <div className="relative hidden min-h-[520px] lg:block">
-            {stages.length === 0 && (
-              <div className="mx-auto mt-24 max-w-sm rounded border border-dashed border-slate-400 bg-white/80 p-6 text-center text-sm text-slate-600">
-                Drop CI/CD stages here. Nearby stages connect automatically; move a stage to reshape the graph.
-              </div>
-            )}
-            {stages.map(stage => (
-              <button
-                key={stage.id}
-                draggable
-                onDragStart={event => event.dataTransfer.setData("application/pipery-move", stage.id)}
-                onClick={() => setSelectedId(stage.id)}
-                className={`relative w-full rounded border bg-white p-3 text-left shadow-sm transition lg:absolute lg:w-36 ${selectedId === stage.id ? "border-slate-950 ring-2 ring-slate-950/10" : "border-slate-300"}`}
-                style={{ left: stage.x, top: stage.y }}
-              >
-                <StageWarning stage={stage} platform={platform} />
-                <span className="block text-center text-2xl">{stage.icon}</span>
-                <span className="block truncate text-center text-sm font-semibold">{stage.label}</span>
-                <span className="block truncate text-center text-xs text-slate-500">{stage.sourcePath || "."}</span>
-                {stage.dependsOn.length > 0 && <span className="mt-2 block truncate rounded bg-slate-100 px-2 py-1 text-[10px] text-slate-600">from {stage.dependsOn.length} stage{stage.dependsOn.length > 1 ? "s" : ""}</span>}
-              </button>
-            ))}
           </div>
         </section>
 
@@ -799,6 +959,54 @@ export default function WorkflowGraphBuilder({
                   </div>
                   <div className="mt-3 rounded bg-slate-50 p-2 text-xs text-slate-600">
                     Connected to: {selected.dependsOn.length ? selected.dependsOn.map(id => stages.find(stage => stage.id === id)?.label || id).join(", ") : "none"}
+                  </div>
+                  <div className="mt-3 rounded border border-slate-200 bg-white p-3">
+                    <h3 className="mb-2 text-xs font-semibold uppercase text-slate-500">Links</h3>
+                    {selectedLinkStages?.from && selectedLinkStages.to && (
+                      <div className="mb-3 rounded bg-slate-50 p-2 text-xs text-slate-700">
+                        Selected: {selectedLinkStages.from.label} {"->"} {selectedLinkStages.to.label}
+                      </div>
+                    )}
+                    <div className="space-y-2">
+                      {selected.dependsOn.map(dep => {
+                        const dependency = stages.find(stage => stage.id === dep);
+                        return (
+                          <div key={dep} className="flex items-center gap-2 rounded border border-slate-200 px-2 py-1 text-xs">
+                            <button
+                              type="button"
+                              onClick={() => setSelectedLink({ from: dep, to: selected.id })}
+                              className="min-w-0 flex-1 truncate text-left font-semibold text-slate-700"
+                            >
+                              {dependency?.label || dep}
+                            </button>
+                            <button type="button" onClick={() => removeDependency(selected.id, dep)} className="text-red-700">
+                              Remove
+                            </button>
+                          </div>
+                        );
+                      })}
+                      {selected.dependsOn.length === 0 && <div className="text-xs text-slate-500">No incoming links.</div>}
+                    </div>
+                    <div className="mt-3 flex gap-2">
+                      <select
+                        value={dependencyToAdd}
+                        onChange={event => setDependencyToAdd(event.target.value)}
+                        className="min-w-0 flex-1 rounded border border-slate-300 bg-white px-2 py-1 text-xs text-slate-950"
+                      >
+                        <option value="">Add dependency</option>
+                        {linkableStages.map(stage => (
+                          <option key={stage.id} value={stage.id}>{stage.label}</option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => addDependency(selected.id, dependencyToAdd)}
+                        disabled={!dependencyToAdd}
+                        className="rounded bg-slate-800 px-2 py-1 text-xs font-semibold text-white disabled:opacity-50"
+                      >
+                        Add
+                      </button>
+                    </div>
                   </div>
                 </div>
               ) : (

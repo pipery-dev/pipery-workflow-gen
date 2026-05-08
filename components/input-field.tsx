@@ -29,7 +29,7 @@ export default function InputField({
         value={value}
         onChange={e => onChange(e.target.value)}
         placeholder={placeholder}
-        className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+        className="w-full px-4 py-2 border border-slate-300 rounded-lg bg-white text-slate-950 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
       />
     </div>
   );
