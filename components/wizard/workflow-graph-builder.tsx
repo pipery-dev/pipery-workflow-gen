@@ -79,7 +79,7 @@ const sourceAction: ImportedAction = {
   actionId: "actions/checkout",
   actionProvider: "github",
   label: "Source Checkout",
-  icon: "SRC",
+  icon: "📄",
   inputs: sourceInputs
 };
 
