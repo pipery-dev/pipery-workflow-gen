@@ -6,7 +6,7 @@ export function ConsentProvider() {
   useEffect(() => {
     // Load tarteaucitron script
     const script = document.createElement('script');
-    script.src = 'https://cdn.jsdelivr.net/npm/tarteaucitron@1/tarteaucitron.min.js';
+    script.src = 'https://unpkg.com/tarteaucitronjs/tarteaucitron.min.js';
     script.async = true;
     script.onload = () => {
       if (typeof window !== 'undefined' && typeof (window as any).tarteaucitron !== 'undefined') {
