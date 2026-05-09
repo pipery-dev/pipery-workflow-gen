@@ -6,14 +6,19 @@ export function ConsentProvider() {
   useEffect(() => {
     function loadTarteaucitron() {
       const mainScript = document.createElement('script');
-      mainScript.src = 'https://cdn.jsdelivr.net/gh/AmauriC/tarteaucitron.js@1.14.0/tarteaucitron.min.js';
+      mainScript.src = '/tarteaucitron/tarteaucitron.min.js';
       mainScript.onload = function() {
-        const servicesScript = document.createElement('script');
-        servicesScript.src = 'https://cdn.jsdelivr.net/gh/AmauriC/tarteaucitron.js@1.14.0/tarteaucitron.services.min.js';
-        servicesScript.onload = function() {
-          initTarteaucitron();
+        const langScript = document.createElement('script');
+        langScript.src = '/tarteaucitron/tarteaucitron.en.min.js';
+        langScript.onload = function() {
+          const servicesScript = document.createElement('script');
+          servicesScript.src = '/tarteaucitron/tarteaucitron.services.min.js';
+          servicesScript.onload = function() {
+            initTarteaucitron();
+          };
+          document.head.appendChild(servicesScript);
         };
-        document.head.appendChild(servicesScript);
+        document.head.appendChild(langScript);
       };
       document.head.appendChild(mainScript);
     }
