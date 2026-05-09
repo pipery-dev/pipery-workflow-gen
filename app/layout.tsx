@@ -59,7 +59,8 @@ export default function RootLayout({
               gtag('config', 'G-5JT65Z6CM4', {
                 'anonymize_ip': true,
                 'allow_google_signals': false,
-                'allow_ad_personalization_signals': false
+                'allow_ad_personalization_signals': false,
+                'cookie_prefix': '_ga'
               });
             `,
           }}
