@@ -4,13 +4,12 @@ import { useEffect } from 'react';
 
 export function ConsentProvider() {
   useEffect(() => {
-    // Load tarteaucitron and services scripts sequentially
     function loadTarteaucitron() {
       const mainScript = document.createElement('script');
-      mainScript.src = 'https://unpkg.com/tarteaucitronjs/tarteaucitron.min.js';
+      mainScript.src = 'https://cdn.jsdelivr.net/gh/AmauriC/tarteaucitron.js@1.14.0/tarteaucitron.min.js';
       mainScript.onload = function() {
         const servicesScript = document.createElement('script');
-        servicesScript.src = 'https://unpkg.com/tarteaucitronjs/tarteaucitron.services.min.js';
+        servicesScript.src = 'https://cdn.jsdelivr.net/gh/AmauriC/tarteaucitron.js@1.14.0/tarteaucitron.services.min.js';
         servicesScript.onload = function() {
           initTarteaucitron();
         };
@@ -30,7 +29,6 @@ export function ConsentProvider() {
       tarteaucitron.init({
         'privacyUrl': 'https://pipery.dev/privacy-policy/',
         'identifyingCookiesPolicy': 'simple',
-        'delayBeforeAllowingFbelangenConflictedNonConsent': undefined,
         'highPrivacyOffsetScroll': false,
         'orientation': 'bottom',
         'groupServices': false,
@@ -49,7 +47,6 @@ export function ConsentProvider() {
         'googleConsentMode': true
       });
 
-      // Add Google Analytics service
       tarteaucitron.services.google_analytics = {
         'key': 'google-analytics',
         'type': 'analytics',
@@ -71,24 +68,9 @@ export function ConsentProvider() {
         }
       };
 
-      // Handle consent changes
-      tarteaucitron.addEventListener('UserConsent', function() {
-        var consentState = {
-          'ad_storage': 'denied',
-          'analytics_storage': 'denied',
-          'ad_user_data': 'denied',
-          'ad_personalization': 'denied'
-        };
-
-        if (tarteaucitron.user.analyticsPermission()) {
-          consentState.analytics_storage = 'granted';
-        }
-
-        (window as any).gtag('consent', 'update', consentState);
-      });
+      tarteaucitron.engage('google_analytics');
     }
 
-    // Start loading
     loadTarteaucitron();
   }, []);
 
