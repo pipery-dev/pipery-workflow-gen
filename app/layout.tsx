@@ -35,7 +35,7 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <head>
-        <link rel="stylesheet" href="https://cdn.jsdelivr.net/g/tarteaucitronjs(tarteaucitron.css)" />
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/tarteaucitron@1/tarteaucitron.css" />
 
         <Script
           async
