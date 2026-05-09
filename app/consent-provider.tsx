@@ -58,7 +58,7 @@ export function ConsentProvider() {
         'name': 'Google Analytics',
         'uri': 'https://business.safety.google/',
         'needConsent': true,
-        'cookies': ['_ga', '_gat_gtag_UA_*', '_gid', '_gat'],
+        'cookies': ['_ga', '_ga_5JT65Z6CM4'],
         'js': function() {
           (window as any).gtag('consent', 'update', {
             'analytics_storage': 'granted'
