@@ -35,8 +35,6 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <head>
-        <link rel="stylesheet" href="/tarteaucitron/tarteaucitron.css" />
-
         <Script
           async
           src="https://www.googletagmanager.com/gtag/js?id=G-5JT65Z6CM4"
