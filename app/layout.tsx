@@ -47,19 +47,15 @@ export default function RootLayout({
             __html: `
               window.dataLayer = window.dataLayer || [];
               function gtag(){dataLayer.push(arguments);}
-              gtag('consent', 'default', {
-                'ad_storage': 'denied',
-                'analytics_storage': 'denied',
-                'ad_user_data': 'denied',
-                'ad_personalization': 'denied'
-              });
               gtag('js', new Date());
+
               gtag('config', 'G-5JT65Z6CM4', {
                 'anonymize_ip': true,
                 'allow_google_signals': false,
                 'allow_ad_personalization_signals': false,
                 'cookie_prefix': '_ga'
               });
+              (tarteaucitron.job = tarteaucitron.job || []).push('gcmanalyticsstorage');
             `,
           }}
         />
