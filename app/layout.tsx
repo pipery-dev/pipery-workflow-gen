@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
-import Script from "next/script";
 import { Geist, Geist_Mono } from "next/font/google";
 import { ConsentProvider } from "./consent-provider";
+import { GoogleTagManager } from "./googletagmanager";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -34,34 +34,9 @@ export default function RootLayout({
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <head>
-        <Script
-          async
-          src="https://www.googletagmanager.com/gtag/js?id=G-5JT65Z6CM4"
-        />
-
-        <Script
-          id="google-consent-mode"
-          strategy="beforeInteractive"
-          dangerouslySetInnerHTML={{
-            __html: `
-              window.dataLayer = window.dataLayer || [];
-              function gtag(){dataLayer.push(arguments);}
-              gtag('js', new Date());
-
-              gtag('config', 'G-5JT65Z6CM4', {
-                'anonymize_ip': true,
-                'allow_google_signals': false,
-                'allow_ad_personalization_signals': false,
-                'cookie_prefix': '_ga'
-              });
-              (tarteaucitron.job = tarteaucitron.job || []).push('gcmanalyticsstorage');
-            `,
-          }}
-        />
-      </head>
       <body className="min-h-full flex flex-col">
         <ConsentProvider />
+        <GoogleTagManager />
         {children}
       </body>
     </html>
